@@ -17,15 +17,11 @@ import TSCBasic
 class DependencyGraphSerializationTests: XCTestCase {
   func roundTrip(_ graph: ModuleDependencyGraph) throws {
     let mockPath = VirtualPath.absolute(AbsolutePath("/module-dependency-graph"))
-    let de = DiagnosticsEngine()
     let fs = InMemoryFileSystem()
     graph.write(to: mockPath, on: fs, compilerVersion: "Swift 99")
 
     let deserializedGraph = try ModuleDependencyGraph.read(from: mockPath,
-                                                           on: fs,
-                                                           diagnosticEngine: de,
-                                                           reporter: nil,
-                                                           options: [])
+                                                           info: .mock(fileSystem: fs))!
     var originalNodes = Set<ModuleDependencyGraph.Node>()
     graph.nodeFinder.forEachNode {
       originalNodes.insert($0)

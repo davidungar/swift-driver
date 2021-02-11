@@ -752,7 +752,10 @@ class ModuleDependencyGraphTests: XCTestCase {
 
   func testLoadPassesWithFingerprint() {
     let graph = ModuleDependencyGraph(mock: de)
-    _ = graph.getChangesForSimulatedLoad(0, [MockDependencyKind.nominal: ["A@1"]])
+    _ = graph.getInvalidatedSourcesForSimulatedLoad(
+      0,
+      [MockDependencyKind.nominal: ["A@1"]],
+      includeAddedExternals: false)
   }
 
   func testUseFingerprints() {
@@ -880,10 +883,7 @@ extension ModuleDependencyGraph {
     mock diagnosticEngine: DiagnosticsEngine,
     options: IncrementalCompilationState.Options = [ .verifyDependencyGraphAfterEveryImport ]
   ) {
-    self.init(diagnosticEngine: diagnosticEngine,
-              reporter: nil,
-              fileSystem: localFileSystem,
-              options: options)
+    self.init(IncrementalCompilationState.InitialStateComputer.mock())
   }
 
 
@@ -894,8 +894,10 @@ extension ModuleDependencyGraph {
     includePrivateDeps: Bool = true,
     hadCompilationError: Bool = false)
   {
-    _ = getChangesForSimulatedLoad(
-      swiftDepsIndex, dependencyDescriptions, interfaceHash,
+    _ = getInvalidatedSourcesForSimulatedLoad(
+      swiftDepsIndex, dependencyDescriptions,
+      includeAddedExternals: false,
+      interfaceHash,
       includePrivateDeps: includePrivateDeps,
       hadCompilationError: hadCompilationError)
   }
@@ -907,25 +909,27 @@ extension ModuleDependencyGraph {
                       hadCompilationError: Bool = false)
   -> [Int]
   {
-    let changedNodes = getChangesForSimulatedLoad(
+    let invalidatedNodes = getInvalidatedSourcesForSimulatedLoad(
       swiftDepsIndex,
       dependencyDescriptions,
+      includeAddedExternals: true,
       interfaceHash,
       includePrivateDeps: includePrivateDeps,
       hadCompilationError: hadCompilationError)
 
-    return findSwiftDepsToRecompileWhenNodesChange(changedNodes)
+    return collectSwiftDepsUsingTransitivelyInvalidated(nodes: invalidatedNodes)
       .map { $0.mockID }
   }
 
 
-  func getChangesForSimulatedLoad(
+  func getInvalidatedSourcesForSimulatedLoad(
     _ swiftDepsIndex: Int,
     _ dependencyDescriptions: [MockDependencyKind: [String]],
+    includeAddedExternals: Bool,
     _ interfaceHashIfPresent: String? = nil,
     includePrivateDeps: Bool = true,
     hadCompilationError: Bool = false
-  ) -> Set<ModuleDependencyGraph.Node> {
+  ) -> InvalidatedNodes {
     let dependencySource = DependencySource(mock: swiftDepsIndex)
     let interfaceHash =
       interfaceHashIfPresent ?? dependencySource.interfaceHashForMockDependencySource
@@ -936,12 +940,17 @@ extension ModuleDependencyGraph {
       dependencySource: dependencySource,
       interfaceHash: interfaceHash,
       dependencyDescriptions)
-    return try! XCTUnwrap(integrate(sourceGraph: sfdg))
+
+    let results = Integrator.integrate(from: sfdg,
+                                      into: self,
+                                      includeAddedExternals: includeAddedExternals)
+
+    return results.allInvalidatedNodes
   }
 
   func findUntracedSwiftDepsDependent(onExternal s: String) -> [Int] {
-    findUntracedSwiftDepsDependent(
-      on: FingerprintedExternalDependency(s.asExternal, nil))
+    try! findUntracedSwiftDepsDependent(
+      on: FingerprintedExternalDependency(.mocking(s), nil))
       .map { $0.mockID }
   }
 
@@ -956,7 +965,7 @@ extension ModuleDependencyGraph {
       // findSwiftDepsToRecompileWhenWholeSwiftDepChanges is reflexive
       // Don't return job twice.
       let filesToRebuild =
-        findSwiftDepsToRecompileWhenDependencySourceChanges(dependencySource)
+        collectSwiftDepsTransitivelyUsing(dependencySource: dependencySource)
         .filter({ marked in marked != dependencySource })
       foundSources.append(contentsOf: filesToRebuild)
     }
@@ -965,7 +974,7 @@ extension ModuleDependencyGraph {
 
 
   func findSwiftDepsToRecompileWhenDependencySourceChanges(_ i: Int) -> [Int] {
-    findSwiftDepsToRecompileWhenDependencySourceChanges(DependencySource(mock: i))
+    collectSwiftDepsTransitivelyUsing(dependencySource: DependencySource(mock: i))
       .map { $0.mockID }
   }
 
@@ -1143,7 +1152,7 @@ fileprivate struct SourceFileDependencyGraphMocker {
       memoizedNodes[key] = newNode
       return newNode
     }
-    return result;
+    return result
   }
 
   private mutating func addAllDefinedDecls() {
@@ -1322,11 +1331,14 @@ fileprivate extension String {
         )
     }
   }
+}
 
-  var asExternal: ExternalDependency {
-    try! ExternalDependency(self)
+fileprivate extension ExternalDependency {
+  static func mocking(_ name: String) throws -> Self {
+    return try Self(name)
   }
 }
+
 
 fileprivate extension Substring {
   var splitDefUse: (def: String, use: String) {
@@ -1399,7 +1411,7 @@ fileprivate extension DependencyKey.Designator {
 
 fileprivate extension Set where Element == ExternalDependency {
   func contains(_ s: String) -> Bool {
-    contains(s.asExternal)
+    try! contains(.mocking(s))
   }
 }
 

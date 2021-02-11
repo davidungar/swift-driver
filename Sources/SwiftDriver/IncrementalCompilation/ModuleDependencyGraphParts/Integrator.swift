@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 import TSCBasic
+import Foundation
 
 extension ModuleDependencyGraph {
 
@@ -24,8 +25,14 @@ extension ModuleDependencyGraph {
 
     /*@_spi(Testing)*/
     public struct Results {
-      var changedNodes = Set<Node>()
-      var discoveredExternalDependencies = Set<FingerprintedExternalDependency>()
+      var allInvalidatedNodes = InvalidatedNodes()
+      var nodesInvalidatedByUsingSomeExternal = InvalidatedNodes()
+
+      mutating func addNodesInvalidatedByUsingSomeExternal(_ invalidated: InvalidatedNodes)
+      {
+        allInvalidatedNodes.formUnion(invalidated)
+        nodesInvalidatedByUsingSomeExternal.formUnion(invalidated)
+      }
     }
     public private(set) var results = Results()
 
@@ -35,22 +42,23 @@ extension ModuleDependencyGraph {
     /// the graph to be integrated into
     let destination: ModuleDependencyGraph
 
+    /// The graph already includes externalDeps from prior compilations
+    let includeAddedExternals: Bool
+
     /// Starts with all nodes in dependencySource. Nodes that persist will be removed.
     /// After integration is complete, contains the nodes that have disappeared.
     var disappearedNodes = [DependencyKey: Graph.Node]()
 
     init(sourceGraph: SourceFileDependencyGraph,
-         destination: ModuleDependencyGraph)
+         destination: ModuleDependencyGraph,
+         includeAddedExternals: Bool)
     {
       self.sourceGraph = sourceGraph
-      self .destination = destination
+      self.destination = destination
+      self.includeAddedExternals = includeAddedExternals
       self.disappearedNodes = destination.nodeFinder
         .findNodes(for: sourceGraph.dependencySource)
         ?? [:]
-    }
-
-    var isCrossModuleIncrementalBuildEnabled: Bool {
-      destination.options.contains(.enableCrossModuleIncrementalBuild)
     }
   }
 }
@@ -59,19 +67,23 @@ extension ModuleDependencyGraph {
 extension ModuleDependencyGraph.Integrator {
   /// Integrate a SourceFileDepGraph into the receiver.
   /// Integration happens when the driver needs to read SourceFileDepGraph.
-  /// Returns changed nodes
-  /*@_spi(Testing)*/ static func integrateAndCollectExternalDepNodes(
+  /// Returns all invalidated nodes and nodes only invalidated by externals.
+  /// Should remove disappeared nodes
+  /// Common to scheduling both waves.
+  /*@_spi(Testing)*/ public static func integrate(
     from g: SourceFileDependencyGraph,
-    into destination: Graph
+    into destination: Graph,
+    includeAddedExternals: Bool
   ) -> Results {
     var integrator = Self(sourceGraph: g,
-                          destination: destination)
+                          destination: destination,
+                          includeAddedExternals: includeAddedExternals)
     integrator.integrate()
 
-    if destination.options.contains(.verifyDependencyGraphAfterEveryImport) {
+    if destination.info.verifyDependencyGraphAfterEveryImport {
       integrator.verifyAfterImporting()
     }
-    if destination.options.contains(.emitDependencyDotFileAfterEveryImport) {
+    if destination.info.emitDependencyDotFileAfterEveryImport {
       destination.emitDotFile(g)
     }
     return integrator.results
@@ -80,14 +92,14 @@ extension ModuleDependencyGraph.Integrator {
   private mutating func integrate() {
     integrateEachSourceNode()
     handleDisappearedNodes()
-    destination.ensureGraphWillRetraceDependents(of: results.changedNodes)
+    destination.ensureGraphWillRetraceDependents(of: results.allInvalidatedNodes)
   }
   private mutating func integrateEachSourceNode() {
     sourceGraph.forEachNode { integrate(oneNode: $0) }
   }
   private mutating func handleDisappearedNodes() {
     for (_, node) in disappearedNodes {
-      results.changedNodes.insert(node)
+      results.allInvalidatedNodes.insert(node)
       destination.nodeFinder.remove(node)
     }
   }
@@ -125,7 +137,7 @@ extension ModuleDependencyGraph.Integrator {
     // Node was and still is. Do not remove it.
     disappearedNodes.removeValue(forKey: matchHere.key)
     if matchHere.fingerprint != integrand.fingerprint {
-      results.changedNodes.insert(matchHere)
+      results.allInvalidatedNodes.insert(matchHere)
     }
     return matchHere
   }
@@ -145,7 +157,7 @@ extension ModuleDependencyGraph.Integrator {
       .replace(expat,
                newDependencySource: sourceGraph.dependencySource,
                newFingerprint: integrand.fingerprint)
-    results.changedNodes.insert(integratedNode)
+    results.allInvalidatedNodes.insert(integratedNode)
     return integratedNode
   }
 
@@ -160,7 +172,7 @@ extension ModuleDependencyGraph.Integrator {
       dependencySource: sourceGraph.dependencySource)
     let oldNode = destination.nodeFinder.insert(newNode)
     assert(oldNode == nil, "Should be new!")
-    results.changedNodes.insert(newNode)
+    results.allInvalidatedNodes.insert(newNode)
     return newNode
   }
 
@@ -174,23 +186,32 @@ extension ModuleDependencyGraph.Integrator {
     sourceGraph.forEachDefDependedUpon(by: sourceFileUseNode) { def in
       let isNewUse = destination.nodeFinder.record(def: def.key,
                                                    use: moduleUseNode)
-      guard isNewUse else { return }
-      guard let externalDependency =
-              def.key.designator.externalDependency
-      else {
-        return
+      if let externalDependency = def.key.designator.externalDependency,
+         isNewUse {
+        recordNodesInvalidatedByUsing(
+          externalDependency: FingerprintedExternalDependency(externalDependency, def.fingerprint),
+          moduleFileGraphUseNode: moduleUseNode)
       }
-      // Check both in case we reread a prior ModDepGraph from a different mode
-      let extDepAndPrint = FingerprintedExternalDependency(externalDependency,
-                                                           def.fingerprint)
-      let isKnown = destination.fingerprintedExternalDependencies.contains(extDepAndPrint)
-      guard !isKnown else {return}
-
-      results.discoveredExternalDependencies.insert(extDepAndPrint)
-      results.changedNodes.insert(moduleUseNode)
     }
   }
+
+  private var buildTime: Date { destination.info.buildTime }
+
+  // A `moduleGraphUseNode` is used by an externalDependency key being integrated.
+  // Remember the dependency for later processing in externalDependencies, and
+  // also return it in results.
+  // Also the use node has changed.
+  private mutating func recordNodesInvalidatedByUsing(
+    externalDependency fingerprintedExternalDependency: FingerprintedExternalDependency,
+    moduleFileGraphUseNode moduleUseNode: Graph.Node) {
+
+    let invalidated = destination.collectNodesInvalidatedByProcessing(
+      fingerprintedExternalDependency: fingerprintedExternalDependency,
+      includeAddedExternals: includeAddedExternals)
+    results.addNodesInvalidatedByUsingSomeExternal(invalidated)
+  }
 }
+
 
 // MARK: - verification
 extension ModuleDependencyGraph.Integrator {

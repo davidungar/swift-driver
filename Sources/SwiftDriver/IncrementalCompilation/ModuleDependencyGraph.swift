@@ -31,307 +31,222 @@ import SwiftOptions
   // The set of paths to external dependencies known to be in the graph
   public internal(set) var fingerprintedExternalDependencies = Set<FingerprintedExternalDependency>()
 
-  let options: IncrementalCompilationState.Options
-  let reporter: IncrementalCompilationState.Reporter?
-  let fileSystem: FileSystem
-  
-  private let diagnosticEngine: DiagnosticsEngine
-  
-  public init(
-    diagnosticEngine: DiagnosticsEngine,
-    reporter: IncrementalCompilationState.Reporter?,
-    fileSystem: FileSystem,
-    options: IncrementalCompilationState.Options
-  ) {
-    self.reporter = reporter
-    self.diagnosticEngine = diagnosticEngine
-    self.options = options
-    self.fileSystem = fileSystem
-  }
+  @_spi(Testing) public let info: IncrementalCompilationState.InitialStateComputer
 
-  var isCrossModuleIncrementalBuildEnabled: Bool {
-    self.options.contains(.enableCrossModuleIncrementalBuild)
+  public init(_ info: IncrementalCompilationState.InitialStateComputer
+  ) {
+    self.info = info
   }
 }
 
 // MARK: - initial build only
 extension ModuleDependencyGraph {
-  /// Builds an empty `ModuleDependencyGraph` for a compilation with the
-  /// given input files.
-  static func buildEmptyGraph<Inputs: Sequence>(
-    for inputFiles: Inputs,
-    diagnosticEngine: DiagnosticsEngine,
-    outputFileMap: OutputFileMap,
-    options: IncrementalCompilationState.Options,
-    reporter: IncrementalCompilationState.Reporter?,
-    filesystem: FileSystem
-  ) -> ModuleDependencyGraph
-    where Inputs.Element == TypedVirtualPath
-  {
-    let emptyGraph = ModuleDependencyGraph(diagnosticEngine: diagnosticEngine,
-                                           reporter: reporter,
-                                           fileSystem: filesystem,
-                                           options: options)
 
-    for input in inputFiles {
-      guard let swiftDepsFile = outputFileMap.existingOutput(inputFile: input.file,
-                                                             outputType: .swiftDeps) else {
-        continue
-      }
-
-      assert(swiftDepsFile.extension == FileType.swiftDeps.rawValue)
-      let typedSwiftDepsFile = TypedVirtualPath(file: swiftDepsFile, type: .swiftDeps)
-      let dependencySource = DependencySource(typedSwiftDepsFile)
-      emptyGraph.inputDependencySourceMap[input] = dependencySource
-    }
-    return emptyGraph
-  }
-
-  /// Builds a graph
-  /// Returns nil if some input (i.e. .swift file) has no corresponding swiftdeps file.
-  /// Returns a list of inputs whose swiftdeps files could not be read
-  static func buildInitialGraph<Inputs: Sequence>(
-    diagnosticEngine: DiagnosticsEngine,
-    inputs: Inputs,
-    previousInputs: Set<VirtualPath>,
-    outputFileMap: OutputFileMap,
-    options: IncrementalCompilationState.Options,
-    remarkDisabled: (String) -> Diagnostic.Message,
-    reporter: IncrementalCompilationState.Reporter?,
-    fileSystem: FileSystem
-  ) -> (
-    ModuleDependencyGraph,
-    inputsAndMalformedSwiftDeps: [(TypedVirtualPath, VirtualPath)]
-  )?
-    where Inputs.Element == TypedVirtualPath
-  {
-    let graph = Self(
-      diagnosticEngine: diagnosticEngine,
-      reporter: reporter,
-	  fileSystem: fileSystem,
-      options: options)
-
-    let inputsAndSwiftdeps = inputs.map { input in
-      (input, outputFileMap.existingOutput(inputFile: input.file,
-                                           outputType: .swiftDeps))
-    }
-    for isd in inputsAndSwiftdeps where isd.1 == nil {
-      // The legacy driver fails silently here.
-      diagnosticEngine.emit(
-        remarkDisabled("\(isd.0.file.basename) has no swiftDeps file")
-      )
-      return nil
-    }
-    let inputsAndMalformedSwiftDeps = inputsAndSwiftdeps.compactMap {
-      input, swiftDepsFile -> (TypedVirtualPath, VirtualPath)? in
-      guard let swiftDepsFile = swiftDepsFile
-      else {
-        return nil
-      }
-      assert(swiftDepsFile.extension == FileType.swiftDeps.rawValue)
-      let typedSwiftDepsFile = TypedVirtualPath(file: swiftDepsFile, type: .swiftDeps)
-      let dependencySource = DependencySource(typedSwiftDepsFile)
-      graph.inputDependencySourceMap[input] = dependencySource
-      guard previousInputs.contains(input.file)
-      else {
-        // do not try to read swiftdeps of a new input
-        return nil
-      }
-      guard let _ = graph.integrate(swiftDeps: typedSwiftDepsFile)
-      else {
-        return (input, swiftDepsFile) // remember the errorred files
-      }
-      return nil
-    }
-    return (graph, inputsAndMalformedSwiftDeps: inputsAndMalformedSwiftDeps)
-  }
-}
-
-// MARK: - Integrating
-extension ModuleDependencyGraph {
-  /// Integrate one swiftDeps, corresponding to an input, and return the changed nodes
-  /// Return nil for errror
-  public func integrate(swiftDeps: TypedVirtualPath) -> Set<Node>? {
-    precondition(swiftDeps.type == .swiftDeps)
-    let dependencySource = DependencySource(swiftDeps)
-    return integrate(from: dependencySource)
-  }
-
-  public func integrate(from dependencySource: DependencySource) -> Set<Node>?  {
-    precondition(dependencySource.typedFile.type == .swiftDeps)
-    guard let sourceGraph = dependencySource.read(
-            in: fileSystem,
-            reporter: reporter)
+  /// Integrates input as needed and returns any inputs that were invalidated by external dependencies
+  /// Include effects of externals that are not already present in the graph iff `includeAddedExternals`
+  func collectInputsRequiringCompilationFromExternalsFoundByCompiling(
+    input: TypedVirtualPath,
+    includeAddedExternals: Bool
+  ) -> InvalidatedInputs? {
+    guard let dependencySource = info.outputFileMap.getDependencySource(for: input, diagnosticEngine: info.diagnosticEngine)
     else {
       return nil
     }
-    return integrate(sourceGraph: sourceGraph)
+    inputDependencySourceMap[input] = dependencySource
+
+    // do not try to read swiftdeps of a new input
+    guard info.sourceFiles.wasPresentBefore(input.file) else {
+      return InvalidatedInputs()
+    }
+    return collectInputsRequiringCompilationAfterProcessing(dependencySource: dependencySource,
+                                         includeAddedExternals: includeAddedExternals,
+                                         invalidatedOnlyByExternals: true)
   }
 
-  public func integrate(sourceGraph: SourceFileDependencyGraph) -> Set<Node>? {
-    let results = Integrator.integrateAndCollectExternalDepNodes(from: sourceGraph,
-                                                                 into: self)
-    guard let externallyCausedChanges =
-            integrate(discoveredExternalDependencies: results.discoveredExternalDependencies)
+  func collectInputsUsingTransitivelyInvalidated(nodes invalidatedNodes: InvalidatedNodes) -> InvalidatedInputs {
+    let invalidatedSwiftDeps = collectSwiftDepsUsingTransitivelyInvalidated(nodes: invalidatedNodes)
+    let invalidatedInputs = invalidatedSwiftDeps.mapIntoInvalidatedThings {inputDependencySourceMap[$0]}
+    return invalidatedInputs
+  }
+
+  private func collectInputsRequiringCompilationAfterProcessing(dependencySource: DependencySource,
+                                includeAddedExternals: Bool,
+                                invalidatedOnlyByExternals: Bool ) -> InvalidatedInputs? {
+    guard let sourceGraph = dependencySource.read(in: info.fileSystem,
+                                                  reporter: info.reporter)
     else {
+      // to preserve legacy behavior cancel whole thing
+      info.diagnosticEngine.emit(
+        .remark_incremental_compilation_has_been_disabled(
+          because: "malformed dependencies file '\(dependencySource.typedFile)'"))
       return nil
+
+      // Since dependencySource is in map, it will be scheduled later
+      // so just continue would work
     }
-    return results.changedNodes.union(externallyCausedChanges)
+    let results = Integrator.integrate(from: sourceGraph,
+                                into: self,
+                                includeAddedExternals: includeAddedExternals)
+
+    return collectInputsUsingTransitivelyInvalidated(
+      nodes:
+        invalidatedOnlyByExternals
+        ? results.nodesInvalidatedByUsingSomeExternal
+        : results.allInvalidatedNodes)
   }
 
-  /// Returns changed nodes
-  private func integrate(
-    discoveredExternalDependencies: Set<FingerprintedExternalDependency>
-  ) -> Set<Node>?
-  {
-    var workList = discoveredExternalDependencies
-    var changedNodes = Set<Node>()
-    while let edp = workList.first {
-      guard fingerprintedExternalDependencies.insert(edp).inserted else {
-        continue
+  func collectNodesInvalidatedByChangedOrAddedExternals() -> InvalidatedNodes {
+    return InvalidatedNodes(
+      fingerprintedExternalDependencies.flatMapToSet {
+        collectNodesInvalidatedByProcessing(fingerprintedExternalDependency: $0, includeAddedExternals: true)
       }
-      let resultIfOK = integrate(
-        externalDependency: edp,
-        fileSystem: fileSystem)
-      if let result = resultIfOK {
-        changedNodes.formUnion(result.changedNodes)
-        workList.formUnion(result.discoveredExternalDependencies)
-      }
-      else {
-        return nil // give up
-      }
-      workList.remove(edp)
-    }
-    return changedNodes
-  }
-
-  private func integrate(
-    externalDependency: FingerprintedExternalDependency,
-    fileSystem: FileSystem
-  ) -> Integrator.Results? {
-    guard let dependencySource = externalDependency.incrementalDependencySource else {
-      return Integrator.Results()
-    }
-    reporter?.report("integrating incremental external dependency",
-                     dependencySource.typedFile)
-    guard let sourceGraph = dependencySource.read(
-            in: fileSystem,
-            reporter: reporter)
-    else {
-      return nil
-    }
-    let results = Integrator.integrateAndCollectExternalDepNodes(
-      from: sourceGraph,
-      into: self
     )
-    return results
   }
-
 }
 // MARK: - Scheduling the first wave
 extension ModuleDependencyGraph {
   /// Find all the sources that depend on `sourceFile`. For some source files, these will be
   /// speculatively scheduled in the first wave.
-  func findDependentSourceFiles(
-    of sourceFile: TypedVirtualPath
+  func collectInputsTransitivelyInvalidatedBy(input: TypedVirtualPath
   ) -> [TypedVirtualPath] {
-    var allDependencySourcesToRecompile = Set<DependencySource>()
+    let changedSource = inputDependencySourceMap[input]
+    let allDependencySourcesToRecompile =
+      collectSwiftDepsTransitivelyUsing(dependencySource: changedSource)
 
-    let dependencySource = inputDependencySourceMap[sourceFile]
-
-    for dependencySourceToRecompile in
-      findSwiftDepsToRecompileWhenDependencySourceChanges( dependencySource ) {
-      if dependencySourceToRecompile != dependencySource {
-        allDependencySourcesToRecompile.insert(dependencySourceToRecompile)
-      }
-    }
-    return allDependencySourcesToRecompile.map {
+    return allDependencySourcesToRecompile.compactMap {
+      guard $0 != changedSource else {return nil}
       let dependentSource = inputDependencySourceMap[$0]
-      self.reporter?.report(
-        "Found dependent of \(sourceFile.file.basename):", dependentSource)
+      info.reporter?.report(
+        "Found dependent of \(input.file.basename):", dependentSource)
       return dependentSource
     }
   }
 
   /// Find all the swiftDeps files that depend on `dependencySource`.
   /// Really private, except for testing.
-  /*@_spi(Testing)*/ public func findSwiftDepsToRecompileWhenDependencySourceChanges(
-    _ dependencySource: DependencySource  ) -> Set<DependencySource> {
+  /*@_spi(Testing)*/ public func collectSwiftDepsTransitivelyUsing(
+    dependencySource: DependencySource  ) -> InvalidatedSources {
     let nodes = nodeFinder.findNodes(for: dependencySource) ?? [:]
     /// Tests expect this to be reflexive
-    return findSwiftDepsToRecompileWhenNodesChange(nodes.values)
+    return collectSwiftDepsUsingTransitivelyInvalidated(nodes: nodes.values)
   }
+
+  func containsNodes(forSourceFile file: TypedVirtualPath) -> Bool {
+    precondition(file.type == .swift)
+    #warning("dmu: or could make subscript return nil if absent")
+    guard inputDependencySourceMap.contains(key: file) else {
+      return false
+    }
+    let source = inputDependencySourceMap[file]
+    return containsNodes(forDependencySource: source)
+  }
+  func containsNodes(forSwiftModule file: VirtualPath) -> Bool {
+    precondition(file.extension == FileType.swiftModule.rawValue)
+    return containsNodes(forDependencySource: DependencySource(file)!)
+  }
+  func containsNodes(forDependencySource source: DependencySource) -> Bool {
+    return nodeFinder.findNodes(for: source).map {!$0.isEmpty}
+      ?? false
+  }
+
 }
 // MARK: - Scheduling the 2nd wave
 extension ModuleDependencyGraph {
   /// After `source` has been compiled, figure out what other source files need compiling.
   /// Used to schedule the 2nd wave.
   /// Return nil in case of an error.
-  func findSourcesToCompileAfterCompiling(
-    _ source: TypedVirtualPath,
-    on fileSystem: FileSystem
-  ) -> [TypedVirtualPath]? {
-    findSourcesToCompileAfterIntegrating(
-      input: source,
-      dependencySource: inputDependencySourceMap[source],
-      on: fileSystem)
-  }
-
-  /// After a compile job has finished, read its swiftDeps file and return the source files needing
-  /// recompilation.
-  /// Return nil in case of an error.
   /// May return a source that has already been compiled.
-  private func findSourcesToCompileAfterIntegrating(
-    input: TypedVirtualPath,
-    dependencySource: DependencySource,
-    on fileSystem: FileSystem
-  ) -> [TypedVirtualPath]? {
-    let swiftDeps = inputDependencySourceMap[input].typedFile
-    let changedNodesIfOK = integrate(swiftDeps: swiftDeps)
-    guard let changedNodes = changedNodesIfOK else {
-      return nil
-    }
-    return findSwiftDepsToRecompileWhenNodesChange(changedNodes)
-      .map { inputDependencySourceMap[$0] }
+  func collectInputsRequiringCompilation(byCompiling source: TypedVirtualPath
+  ) -> InvalidatedInputs? {
+    precondition(source.type == .swift)
+    let dependencySource = inputDependencySourceMap[source]
+    return collectInputsRequiringCompilationAfterProcessing(
+      dependencySource: dependencySource,
+      includeAddedExternals: true,
+      invalidatedOnlyByExternals: false)
   }
 }
 
 // MARK: - Scheduling either wave
+
 extension ModuleDependencyGraph {
+  
   /// Find all the swiftDeps affected when the nodes change.
-  /*@_spi(Testing)*/ public func findSwiftDepsToRecompileWhenNodesChange<Nodes: Sequence>(
-    _ nodes: Nodes
-  ) -> Set<DependencySource>
+  /*@_spi(Testing)*/
+  public func collectSwiftDepsUsingTransitivelyInvalidated<Nodes: Sequence>(nodes: Nodes
+  ) -> InvalidatedSources
     where Nodes.Element == Node
   {
-    let affectedNodes = Tracer.findPreviouslyUntracedUsesOf(
-      defs: nodes,
+    // Is this correct for the 1st wave after having read a prior?
+    // Yes, because
+    //  1. if the externalDependency was current, there are no changes required
+    //  2. otherwise, it will have been reread, which should create changed nodes, etc.
+    let affectedNodes = Tracer.collectPreviouslyUntracedNodesUsing(
+      defNodes: nodes,
       in: self,
-      diagnosticEngine: diagnosticEngine)
+      diagnosticEngine: info.diagnosticEngine)
       .tracedUses
-    return Set(affectedNodes.compactMap {$0.dependencySource})
+    let invalidatedSources = InvalidatedSources(
+      Set(
+        affectedNodes.compactMap {
+          $0.dependencySource.flatMap {$0.typedFile.type == .swiftDeps ? $0 : nil}
+        }))
+    return invalidatedSources
   }
 
   /*@_spi(Testing)*/ public func untracedDependents(
-    of extDepAndPrint: FingerprintedExternalDependency
-  ) -> [ModuleDependencyGraph.Node] {
+    of fingerprintedExternalDependency: FingerprintedExternalDependency
+  ) -> InvalidatedNodes {
     // These nodes will depend on the *interface* of the external Decl.
-    let key = DependencyKey(interfaceFor: extDepAndPrint.externalDependency)
+    let key = DependencyKey(interfaceFor: fingerprintedExternalDependency.externalDependency)
     // DependencySource is OK as a nil placeholder because it's only used to find
     // the corresponding implementation node and there won't be any for an
     // external dependency node.
     let node = Node(key: key,
-                    fingerprint: extDepAndPrint.fingerprint,
+                    fingerprint: fingerprintedExternalDependency.fingerprint,
                     dependencySource: nil)
-    return nodeFinder
-      .orderedUses(of: node)
-      .filter({ use in isUntraced(use) })
+    return InvalidatedNodes(
+      nodeFinder
+        .uses(of: node)
+        .filter({ use in isUntraced(use) }))
   }
 }
 fileprivate extension DependencyKey {
   init(interfaceFor dep: ExternalDependency) {
     self.init(aspect: .interface,
               designator: .externalDepend(dep))
+  }
+}
+// MARK: - external dependencies
+
+extension ModuleDependencyGraph {
+
+  /// evenIfUnchanged - return the changes even if the external file did not change
+  func collectNodesInvalidatedByProcessing(
+    fingerprintedExternalDependency fed: FingerprintedExternalDependency,
+    includeAddedExternals: Bool)
+  -> InvalidatedNodes {
+    let hasExternalFileChanged = (fed.externalDependency.modTime(info.fileSystem) ?? .distantFuture) >= info.buildTime
+    let isNewToTheGraph = fingerprintedExternalDependencies.insert(fed).inserted
+    let treatAsIncremental = info.isCrossModuleIncrementalBuildEnabled && fed.isIncremental
+
+    // If the graph already includes prior externals, then any new externals are changes
+    let callerWantsChanges = hasExternalFileChanged || (includeAddedExternals && isNewToTheGraph )
+    let tryToIntegrate = treatAsIncremental && (hasExternalFileChanged || isNewToTheGraph)
+    if tryToIntegrate {
+      if let importedDepGraph = DependencySource(fed.externalDependency.file)?
+          .read(in: info.fileSystem, reporter: info.reporter) {
+        let invalidatedNodes =  Integrator.integrate(
+          from: importedDepGraph,
+          into: self,
+          includeAddedExternals: includeAddedExternals)
+          .allInvalidatedNodes
+        return callerWantsChanges ? invalidatedNodes : InvalidatedNodes()
+      }
+    }
+    return callerWantsChanges
+      ? untracedDependents(of: fed)
+      : InvalidatedNodes()
   }
 }
 // MARK: - tracking traced nodes
@@ -404,6 +319,7 @@ extension ModuleDependencyGraph {
     case useIDNode          = 4
     case externalDepNode    = 5
     case identifierNode     = 6
+    case mapNode            = 7
 
     /// The human-readable name of this record.
     ///
@@ -424,6 +340,8 @@ extension ModuleDependencyGraph {
         return "EXTERNAL_DEP_NODE"
       case .identifierNode:
         return "IDENTIFIER_NODE"
+      case .mapNode:
+        return "MAP_NODE"
       }
     }
   }
@@ -437,6 +355,7 @@ extension ModuleDependencyGraph {
     case malformedIdentifierRecord
     case malformedModuleDepGraphNodeRecord
     case malformedDependsOnRecord
+    case malformedMapRecord
     case malformedExternalDepNodeRecord
     case unknownRecord
     case unexpectedSubblock
@@ -453,17 +372,18 @@ extension ModuleDependencyGraph {
   ///   - diagnosticEngine: The diagnostics engine.
   ///   - reporter: An optional reporter used to log information about
   /// - Throws: An error describing any failures to read the graph from the given file.
-  /// - Returns: A fully deserialized ModuleDependencyGraph.
+  /// - Returns: A fully deserialized ModuleDependencyGraph, or nil if nothing is there
   static func read(
     from path: VirtualPath,
-    on fileSystem: FileSystem,
-    diagnosticEngine: DiagnosticsEngine,
-    reporter: IncrementalCompilationState.Reporter?,
-    options: IncrementalCompilationState.Options
-  ) throws -> ModuleDependencyGraph {
-    let data = try fileSystem.readFileContents(path)
+    info: IncrementalCompilationState.InitialStateComputer
+  ) throws -> ModuleDependencyGraph? {
+    guard try info.fileSystem.exists(path) else {
+      return nil
+    }
+    let data = try info.fileSystem.readFileContents(path)
 
     struct Visitor: BitstreamVisitor {
+      private let fileSystem: FileSystem
       private let graph: ModuleDependencyGraph
       var majorVersion: UInt64?
       var minorVersion: UInt64?
@@ -473,19 +393,12 @@ extension ModuleDependencyGraph {
       private var identifiers: [String] = [""]
       private var currentDefKey: DependencyKey? = nil
       private var nodeUses: [DependencyKey: [Int]] = [:]
+      private var inputDependencySourceMap: [(TypedVirtualPath, DependencySource)] = []
       private var allNodes: [Node] = []
 
-      init(
-        diagnosticEngine: DiagnosticsEngine,
-        reporter: IncrementalCompilationState.Reporter?,
-        fileSystem: FileSystem,
-        options: IncrementalCompilationState.Options
-      ) {
-        self.graph = ModuleDependencyGraph(
-          diagnosticEngine: diagnosticEngine,
-          reporter: reporter,
-		  fileSystem: fileSystem,
-          options: options)
+      init(_ info: IncrementalCompilationState.InitialStateComputer) {
+        self.fileSystem = info.fileSystem
+        self.graph = ModuleDependencyGraph(info)
       }
 
       func finalizeGraph() -> ModuleDependencyGraph {
@@ -496,6 +409,10 @@ extension ModuleDependencyGraph {
             assert(isNewUse, "Duplicate use def-use arc in graph?")
           }
         }
+        for (input, source) in inputDependencySourceMap {
+          graph.inputDependencySourceMap[input] = source
+        }
+
         return self.graph
       }
 
@@ -551,7 +468,7 @@ extension ModuleDependencyGraph {
           let context = identifiers[Int(record.fields[2])]
           let identifier = identifiers[Int(record.fields[3])]
           let designator = try DependencyKey.Designator(
-            kindCode: kindCode, context: context, name: identifier)
+            kindCode: kindCode, context: context, name: identifier, fileSystem: fileSystem)
           let key = DependencyKey(aspect: declAspect, designator: designator)
           let hasSwiftDeps = Int(record.fields[4]) != 0
           let swiftDepsStr = hasSwiftDeps ? identifiers[Int(record.fields[5])] : nil
@@ -578,13 +495,32 @@ extension ModuleDependencyGraph {
           let context = identifiers[Int(record.fields[2])]
           let identifier = identifiers[Int(record.fields[3])]
           let designator = try DependencyKey.Designator(
-            kindCode: kindCode, context: context, name: identifier)
+            kindCode: kindCode, context: context, name: identifier, fileSystem: fileSystem)
           self.currentDefKey = DependencyKey(aspect: declAspect, designator: designator)
         case .useIDNode:
           guard let key = self.currentDefKey, record.fields.count == 1 else {
             throw ReadError.malformedDependsOnRecord
           }
           self.nodeUses[key, default: []].append(Int(record.fields[0]))
+        case .mapNode:
+          guard record.fields.count == 2,
+                record.fields[0] < identifiers.count,
+                record.fields[1] < identifiers.count
+          else {
+            throw ReadError.malformedModuleDepGraphNodeRecord
+          }
+          let inputPathString = identifiers[Int(record.fields[0])]
+          let dependencySourcePathString = identifiers[Int(record.fields[1])]
+          let inputPath = try VirtualPath(path: inputPathString)
+          let dependencySourcePath = try VirtualPath(path: dependencySourcePathString)
+          guard inputPath.extension == FileType.swift.rawValue,
+                dependencySourcePath.extension == FileType.swiftDeps.rawValue,
+                let dependencySource = DependencySource(dependencySourcePath)
+          else {
+            throw ReadError.malformedMapRecord
+          }
+          let input = TypedVirtualPath(file: inputPath, type: .swift)
+          inputDependencySourceMap.append((input, dependencySource))
         case .externalDepNode:
           guard record.fields.count == 2,
                 record.fields[0] < identifiers.count,
@@ -596,8 +532,8 @@ extension ModuleDependencyGraph {
           let path = identifiers[Int(record.fields[0])]
           let hasFingerprint = Int(record.fields[1]) != 0
           let fingerprint = hasFingerprint ? fingerprintStr : nil
-          self.graph.fingerprintedExternalDependencies.insert(
-            FingerprintedExternalDependency(try ExternalDependency(path), fingerprint))
+          try self.graph.fingerprintedExternalDependencies.insert(
+            FingerprintedExternalDependency(ExternalDependency(path), fingerprint))
         case .identifierNode:
           guard record.fields.count == 0,
                 case .blob(let identifierBlob) = record.payload,
@@ -610,10 +546,7 @@ extension ModuleDependencyGraph {
       }
     }
 
-    var visitor = Visitor(diagnosticEngine: diagnosticEngine,
-                          reporter: reporter,
-                          fileSystem: fileSystem,
-                          options: options)
+    var visitor = Visitor(info)
     try Bitcode.read(bytes: data, using: &visitor)
     guard let major = visitor.majorVersion,
           let minor = visitor.minorVersion,
@@ -622,7 +555,9 @@ extension ModuleDependencyGraph {
     else {
       throw ReadError.malformedMetadataRecord
     }
-    return visitor.finalizeGraph()
+    let graph = visitor.finalizeGraph()
+    info.reporter?.report("Read dependency graph", path)
+    return graph
   }
 }
 
@@ -653,7 +588,7 @@ extension ModuleDependencyGraph {
                                        bytes: data,
                                        atomically: true)
     } catch {
-      diagnosticEngine.emit(.error_could_not_write_dep_graph(to: path))
+      info.diagnosticEngine.emit(.error_could_not_write_dep_graph(to: path))
     }
   }
 
@@ -707,6 +642,7 @@ extension ModuleDependencyGraph {
         self.emitRecordID(.useIDNode)
         self.emitRecordID(.externalDepNode)
         self.emitRecordID(.identifierNode)
+        self.emitRecordID(.mapNode)
       }
     }
 
@@ -766,6 +702,11 @@ extension ModuleDependencyGraph {
         if let name = key.designator.name {
           self.addIdentifier(name)
         }
+      }
+
+      for (input, dependencySource) in graph.inputDependencySourceMap {
+        self.addIdentifier(input.file.name)
+        self.addIdentifier(dependencySource.file.name)
       }
 
       for edF in graph.fingerprintedExternalDependencies {
@@ -839,7 +780,14 @@ extension ModuleDependencyGraph {
         // identifier data
         .blob
       ])
-    }
+      self.abbreviate(.mapNode, [
+        .literal(RecordID.mapNode.rawValue),
+        // input name
+        .vbr(chunkBitWidth: 13),
+        // dependencySource name
+        .vbr(chunkBitWidth: 13),
+      ])
+   }
 
     private func abbreviate(
       _ record: RecordID,
@@ -901,6 +849,13 @@ extension ModuleDependencyGraph {
             }
           }
         }
+        for (input, dependencySource) in graph.inputDependencySourceMap {
+          serializer.stream.writeRecord(serializer.abbreviations[.mapNode]!) {
+            $0.append(RecordID.mapNode)
+            $0.append(serializer.lookupIdentifierCode(for: input.file.name))
+            $0.append(serializer.lookupIdentifierCode(for: dependencySource.file.name))
+         }
+        }
 
         for fingerprintedExternalDependency in graph.fingerprintedExternalDependencies {
           serializer.stream.writeRecord(serializer.abbreviations[.externalDepNode]!, {
@@ -940,7 +895,7 @@ fileprivate extension DependencyKey.DeclAspect {
 }
 
 fileprivate extension DependencyKey.Designator {
-  init(kindCode: UInt64, context: String, name: String) throws {
+  init(kindCode: UInt64, context: String, name: String, fileSystem: FileSystem) throws {
     func mustBeEmpty(_ s: String) throws {
       guard s.isEmpty else {
         throw ModuleDependencyGraph.ReadError.bogusNameOrContext
@@ -1068,5 +1023,25 @@ extension BidirectionalMap where T1 == TypedVirtualPath, T2 == DependencySource 
 extension Set where Element == FingerprintedExternalDependency {
   fileprivate func matches(_ other: Self) -> Bool {
     self == other
+  }
+}
+
+extension OutputFileMap {
+  fileprivate func getDependencySource(
+    for sourceFile: TypedVirtualPath,
+    diagnosticEngine: DiagnosticsEngine
+  ) -> DependencySource? {
+    assert(sourceFile.type == FileType.swift)
+    guard let swiftDepsPath = existingOutput(inputFile: sourceFile.file, outputType: .swiftDeps)
+    else {
+      // The legacy driver fails silently here.
+      diagnosticEngine.emit(
+        .remarkDisabled("\(sourceFile.file.basename) has no swiftDeps file")
+      )
+      return nil
+    }
+    assert(swiftDepsPath.extension == FileType.swiftDeps.rawValue)
+    let typedSwiftDepsFile = TypedVirtualPath(file: swiftDepsPath, type: .swiftDeps)
+    return DependencySource(typedSwiftDepsFile)
   }
 }
