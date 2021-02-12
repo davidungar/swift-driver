@@ -32,8 +32,6 @@ import TSCBasic
   }
 }
 
-
-
 /// Since the integration surfaces all externalDependencies to be processed later,
 /// a combination of the dependency and fingerprint are needed.
 public struct FingerprintedExternalDependency: Hashable, Equatable, ExternalDependencyAndFingerprintEnforcer {

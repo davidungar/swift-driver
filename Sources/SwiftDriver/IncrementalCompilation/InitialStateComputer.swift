@@ -179,7 +179,7 @@ extension IncrementalCompilationState.InitialStateComputer {
     // a recompile, so includeAddedExternals is false.
     let inputsInvalidatedByChangedExternals: InvalidatedInputs? =
       sourceFiles.currentInOrder.conditionalCompactMapToChanges {
-        graph.collectInputsRequiringCompilationFromExternalsFoundByCompiling(input: $0, includeAddedExternals: false)
+        graph.collectInputsRequiringCompilationFromExternalsFoundByCompiling(input: $0)
       }
 
     reporter?.report("Created dependency graph from swiftdeps files")
@@ -207,7 +207,8 @@ extension IncrementalCompilationState.InitialStateComputer {
       Dictionary(uniqueKeysWithValues:
                   jobsInPhases.compileGroups.map { ($0.primaryInput, $0) })
     guard let buildRecord = maybeBuildRecord else {
-      let mandatoryCompileGroupsInOrder = sourceFiles.currentInOrder.compactMap { input -> CompileJobGroup? in
+      let mandatoryCompileGroupsInOrder = sourceFiles.currentInOrder.compactMap {
+        input -> CompileJobGroup? in
         compileGroups[input]
       }
 
@@ -243,7 +244,6 @@ extension IncrementalCompilationState.InitialStateComputer {
     return (skippedCompileGroups: skippedCompileGroups,
             mandatoryJobsInOrder: mandatoryJobsInOrder)
   }
-
 
   /// Figure out which compilation inputs are *not* mandatory
   private func computeSkippedCompilationInputs(
@@ -306,7 +306,8 @@ extension IncrementalCompilationState.InitialStateComputer {
   }
 
   private func sortByCommandLineOrder(_ inputs: Set<TypedVirtualPath>) -> [TypedVirtualPath] {
-    let indices = Dictionary(uniqueKeysWithValues: inputs.enumerated().map {offset, element in (element, offset)})
+    let indices = Dictionary(uniqueKeysWithValues: inputs.enumerated()
+                              .map {offset, element in (element, offset)})
     return inputs.sorted {indices[$0]! < indices[$1]!}
   }
 

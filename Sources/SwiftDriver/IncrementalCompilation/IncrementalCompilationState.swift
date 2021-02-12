@@ -56,8 +56,11 @@ public class IncrementalCompilationState {
       self.reporter = nil
     }
 
+    let enablingOrDisabling = options.contains(.isCrossModuleIncrementalBuildEnabled)
+      ? "Enabling"
+      : "Disabling"
     reporter?.report(
-      "\(options.contains(.isCrossModuleIncrementalBuildEnabled) ? "Enabling" : "Disabling") incremental cross-module building")
+      "\(enablingOrDisabling) incremental cross-module building")
 
 
     guard let outputFileMap = driver.outputFileMap else {
@@ -75,7 +78,10 @@ public class IncrementalCompilationState {
     let maybeBuildRecord = buildRecordInfo.populateOutOfDateBuildRecord(
             inputFiles: driver.inputFiles, reporter: reporter)
 
-
+    // Forming batch jobs requires passing in the driver "inout". But that's the
+    // only "inout" use needed, among many other values needed from the driver.
+    // So, pass the other values individually, and pass the driver "inout" as
+    // the "batchJobFormer". Maybe someday there will be a better way.
     guard
       let initial = try InitialStateComputer(
         options,

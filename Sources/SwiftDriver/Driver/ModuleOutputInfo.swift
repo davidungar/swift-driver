@@ -48,8 +48,4 @@
 
   /// Whether `name` was picked by the driver instead of the user.
   public let nameIsFallback: Bool
-
-  static func mock() -> Self {
-    ModuleOutputInfo(output: nil, name: "dummy", nameIsFallback: true)
-  }
 }
