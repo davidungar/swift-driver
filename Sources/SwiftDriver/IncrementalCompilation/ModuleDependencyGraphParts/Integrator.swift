@@ -63,7 +63,6 @@ extension ModuleDependencyGraph {
   }
 }
 // MARK: - integrate a graph
-
 extension ModuleDependencyGraph.Integrator {
   /// Integrate a SourceFileDepGraph into the receiver.
   /// Integration happens when the driver needs to read SourceFileDepGraph.

@@ -29,6 +29,7 @@ extension ModuleDependencyGraph {
 
     /*@_spi(Testing)*/ public typealias Graph = ModuleDependencyGraph
 
+    /// Hold these where an invariant can be checked.
     let keyAndFingerprint: KeyAndFingerprintHolder
 
     var key: DependencyKey { keyAndFingerprint.key }

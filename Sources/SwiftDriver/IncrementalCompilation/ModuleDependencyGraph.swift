@@ -66,56 +66,6 @@ extension ModuleDependencyGraph {
   }
 }
 
-// MARK: - Common across phases
-extension ModuleDependencyGraph {
-
-  /// Find all the inputs known to need recompilation as a consequence of reading a swiftdeps or swiftmodule
-  /// `dependencySource` - The file to read containing dependency information
-  /// `includeAddedExternals` - If `true` external dependencies read from the dependencySource cause inputs to be invalidated,
-  /// even if the external file has not changed since the last build.
-  /// (`false` when building a graph from swiftdeps, `true` when building a graph from rereading the result of a compilation,
-  /// because in that case the added external is assumed to be caused by an `import` added to the source file.)
-  /// `invalidatedOnlyByExternals` - Only return inputs invalidated because of external dependencies, vs invalidated by any dependency
-  /// Returns `nil` on error
-  private func collectInputsRequiringCompilationAfterProcessing(
-    dependencySource: DependencySource,
-    includeAddedExternals: Bool
-  ) -> InvalidatedInputs? {
-    guard let sourceGraph = dependencySource.read(in: info.fileSystem,
-                                                  reporter: info.reporter)
-    else {
-      // to preserve legacy behavior cancel whole thing
-      info.diagnosticEngine.emit(
-        .remark_incremental_compilation_has_been_disabled(
-          because: "malformed dependencies file '\(dependencySource.typedFile)'"))
-      return nil
-    }
-    let results = Integrator.integrate(from: sourceGraph,
-                                into: self,
-                                includeAddedExternals: includeAddedExternals)
-
-    /// When reading from a swiftdeps file ( includeAddedExternals is false), any changed input files are
-    /// computed separately. (TODO: fix this? by finding changed inputs in a callee?),
-    /// so the only invalidates that matter are the ones caused by
-    /// changed external dependencies.
-    /// When reading a swiftdeps file after compiling, any invalidated node matters.
-    let invalidatedNodes = includeAddedExternals
-      ? results.allInvalidatedNodes
-      : results.nodesInvalidatedByUsingSomeExternal
-
-    return collectInputsUsingTransitivelyInvalidated(nodes: invalidatedNodes)
-  }
-
-  /// Given nodes that are invalidated, find all the affected inputs that must be recompiled.
-  func collectInputsUsingTransitivelyInvalidated(
-    nodes invalidatedNodes: InvalidatedNodes
-  ) -> InvalidatedInputs {
-    let invalidatedSwiftDeps = collectSwiftDepsUsingTransitivelyInvalidated(nodes: invalidatedNodes)
-    let invalidatedInputs = invalidatedSwiftDeps.mapIntoInvalidatedThings {inputDependencySourceMap[$0]}
-    return invalidatedInputs
-  }
-}
-
 // MARK: - Getting a graph read from priors ready to use
 extension ModuleDependencyGraph {
   func collectNodesInvalidatedByChangedOrAddedExternals() -> InvalidatedNodes {
@@ -188,12 +138,13 @@ extension ModuleDependencyGraph {
 }
 
 // MARK: - Scheduling either wave
-
 extension ModuleDependencyGraph {
   
-  /// Find all the swiftDeps affected when the nodes change.
+  /// Given a set of invalidated nodes, find all swiftDeps dependency sources containing defs that transitively use
+  /// any of the invalidated nodes.
   /*@_spi(Testing)*/
-  public func collectSwiftDepsUsingTransitivelyInvalidated<Nodes: Sequence>(nodes: Nodes
+  public func collectSwiftDepsUsingTransitivelyInvalidated<Nodes: Sequence>(
+    nodes: Nodes
   ) -> InvalidatedSources
     where Nodes.Element == Node
   {
@@ -214,11 +165,16 @@ extension ModuleDependencyGraph {
     return invalidatedSources
   }
 
-  /*@_spi(Testing)*/ public func untracedDependents(
-    of fingerprintedExternalDependency: FingerprintedExternalDependency
+  /// Given an external dependency & its fingerprint, find any nodes directly using that dependency.
+  /// As an optimization, only return the nodes that have not been already traced, because the traced nodes
+  /// will have already been used to schedule jobs to run.
+  /*@_spi(Testing)*/ public func collectUntracedNodesDirectlyUsing(
+    _ fingerprintedExternalDependency: FingerprintedExternalDependency
   ) -> InvalidatedNodes {
     // These nodes will depend on the *interface* of the external Decl.
-    let key = DependencyKey(interfaceFor: fingerprintedExternalDependency.externalDependency)
+    let key = DependencyKey(
+      aspect: .interface,
+      designator: .externalDepend(fingerprintedExternalDependency.externalDependency))
     // DependencySource is OK as a nil placeholder because it's only used to find
     // the corresponding implementation node and there won't be any for an
     // external dependency node.
@@ -230,18 +186,58 @@ extension ModuleDependencyGraph {
         .uses(of: node)
         .filter({ use in isUntraced(use) }))
   }
-}
-fileprivate extension DependencyKey {
-  init(interfaceFor dep: ExternalDependency) {
-    self.init(aspect: .interface,
-              designator: .externalDepend(dep))
+
+  /// Find all the inputs known to need recompilation as a consequence of reading a swiftdeps or swiftmodule
+  /// `dependencySource` - The file to read containing dependency information
+  /// `includeAddedExternals` - If `true` external dependencies read from the dependencySource cause inputs to be invalidated,
+  /// even if the external file has not changed since the last build.
+  /// (`false` when building a graph from swiftdeps, `true` when building a graph from rereading the result of a compilation,
+  /// because in that case the added external is assumed to be caused by an `import` added to the source file.)
+  /// `invalidatedOnlyByExternals` - Only return inputs invalidated because of external dependencies, vs invalidated by any dependency
+  /// Returns `nil` on error
+  private func collectInputsRequiringCompilationAfterProcessing(
+    dependencySource: DependencySource,
+    includeAddedExternals: Bool
+  ) -> InvalidatedInputs? {
+    guard let sourceGraph = dependencySource.read(in: info.fileSystem,
+                                                  reporter: info.reporter)
+    else {
+      // to preserve legacy behavior cancel whole thing
+      info.diagnosticEngine.emit(
+        .remark_incremental_compilation_has_been_disabled(
+          because: "malformed dependencies file '\(dependencySource.typedFile)'"))
+      return nil
+    }
+    let results = Integrator.integrate(from: sourceGraph,
+                                into: self,
+                                includeAddedExternals: includeAddedExternals)
+
+    /// When reading from a swiftdeps file ( includeAddedExternals is false), any changed input files are
+    /// computed separately. (TODO: fix this? by finding changed inputs in a callee?),
+    /// so the only invalidates that matter are the ones caused by
+    /// changed external dependencies.
+    /// When reading a swiftdeps file after compiling, any invalidated node matters.
+    let invalidatedNodes = includeAddedExternals
+      ? results.allInvalidatedNodes
+      : results.nodesInvalidatedByUsingSomeExternal
+
+    return collectInputsUsingTransitivelyInvalidated(nodes: invalidatedNodes)
   }
-}
-// MARK: - external dependencies
 
-extension ModuleDependencyGraph {
+  /// Given nodes that are invalidated, find all the affected inputs that must be recompiled.
+  func collectInputsUsingTransitivelyInvalidated(
+    nodes invalidatedNodes: InvalidatedNodes
+  ) -> InvalidatedInputs {
+    let invalidatedSwiftDeps = collectSwiftDepsUsingTransitivelyInvalidated(nodes: invalidatedNodes)
+    let invalidatedInputs = invalidatedSwiftDeps.mapIntoInvalidatedThings {inputDependencySourceMap[$0]}
+    return invalidatedInputs
+  }
 
-  /// evenIfUnchanged - return the changes even if the external file did not change
+  /// Process a possibly-fingerprinted external dependency by reading and integrating, if applicable.
+  /// Return the nodes thus invalidated.
+  /// includeAddedExternals - return the changes arising merely because the external was new to the graph,
+  /// as opposed to changes from changed externals.
+  /// But always integrate, in order to detect future changes.
   func collectNodesInvalidatedByProcessing(
     fingerprintedExternalDependency fed: FingerprintedExternalDependency,
     includeAddedExternals: Bool)
@@ -265,7 +261,7 @@ extension ModuleDependencyGraph {
       }
     }
     return callerWantsChanges
-      ? untracedDependents(of: fed)
+      ? collectUntracedNodesDirectlyUsing(fed)
       : InvalidatedNodes()
   }
 }
