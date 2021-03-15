@@ -324,7 +324,7 @@ extension ModuleDependencyGraph {
     if let hasChanged = externalDependencyModTimeCache[externalDependency] {
       return hasChanged
     }
-    let hasChanged = (externalDependency.modTime(info.fileSystem) ?? .distantFuture)
+    let hasChanged = (externalDependency.slowModTime(info.fileSystem) ?? .distantFuture)
       >= info.buildTime
     externalDependencyModTimeCache[externalDependency] = hasChanged
     return hasChanged
@@ -792,7 +792,7 @@ extension ModuleDependencyGraph {
       }
 
       for edF in graph.fingerprintedExternalDependencies {
-        self.addIdentifier(edF.externalDependency.file.name)
+        self.addIdentifier(edF.externalDependency.fileName)
       }
 
       for str in self.identifiersToWrite {
@@ -943,7 +943,7 @@ extension ModuleDependencyGraph {
           serializer.stream.writeRecord(serializer.abbreviations[.externalDepNode]!, {
             $0.append(RecordID.externalDepNode)
             $0.append(serializer.lookupIdentifierCode(
-                        for: fingerprintedExternalDependency.externalDependency.file.name))
+                        for: fingerprintedExternalDependency.externalDependency.fileName))
             $0.append((fingerprintedExternalDependency.fingerprint != nil) ? UInt32(1) : UInt32(0))
           }, 
           blob: (fingerprintedExternalDependency.fingerprint ?? ""))
