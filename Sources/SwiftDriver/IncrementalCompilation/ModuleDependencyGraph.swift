@@ -339,6 +339,7 @@ extension ModuleDependencyGraph {
       .read(in: info.fileSystem, reporter: info.reporter)
       .map { unserializedDepGraph in
         info.reporter?.report("Integrating changes from: \(fed.externalDependency)")
+        error("must change phase?")
         return Integrator.integrate(from: unserializedDepGraph, into: self)
       }
   }

@@ -220,7 +220,8 @@ extension IncrementalCompilationState {
     guard job.kind == .compile else {
       return Set<TypedVirtualPath>()
     }
-    return job.primaryInputs.reduce(into: Set()) { invalidatedInputs, primaryInput in
+    return job.primaryInputs.reduce(into: Set()) {]
+      invalidatedInputs, primaryInput in
       invalidatedInputs.formUnion(collectInputsInvalidated(byCompiling: primaryInput))
     }
     .subtracting(job.primaryInputs) // have already compiled these

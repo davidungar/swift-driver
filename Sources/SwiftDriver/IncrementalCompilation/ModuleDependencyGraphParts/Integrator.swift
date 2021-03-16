@@ -210,26 +210,35 @@ extension ModuleDependencyGraph.Integrator {
   /*@_spi(Testing)*/
   mutating func collectUsesOfSomeExternal(_ invalidated: DirectlyInvalidatedNodeSet)
   {
-    invalidatedNodes.formUnion(invalidated)
+    addInvalidatedNodes(invalidated)
   }
   mutating func addDisappeared(_ node: Graph.Node) {
     assert(isUpdating)
-    invalidatedNodes.insert(node)
+    addInvalidatedNode(node)
   }
   mutating func addChanged(_ node: Graph.Node) {
     assert(isUpdating)
-    invalidatedNodes.insert(node)
+    addInvalidatedNode(node)
   }
   mutating func addPatriated(_ node: Graph.Node) {
     if isUpdating {
       reporter?.report("Discovered a definition for \(node)")
-      invalidatedNodes.insert(node)
+      addInvalidatedNode(node)
     }
   }
   mutating func addNew(_ node: Graph.Node) {
     if isUpdating {
       reporter?.report("New definition: \(node)")
-      invalidatedNodes.insert(node)
+      addInvalidatedNode(node)
+    }
+  }
+  private func addInvalidatedNode(_ node: Node) {
+    assert(isUpdating)
+    invalidatedNodes.insert(node)
+  }
+  private func addInvalidatedNodes(_ nodes: [Node]) {
+    if isUpdating {
+      invalidatedNodes.formUnion(nodes)
     }
   }
 }
