@@ -528,6 +528,16 @@ class ExecuteJobRule: LLBuildRule {
     }
   }
 
+  private func fixupFDsForCompile(_ job: Job) {
+    guard job.kind == .compile else {return}
+    var fd: Int32 = 3
+    while (true) {
+      guard close(fd) == 0 else {break}
+      print("HERE ", fd, " was open", to: &stderrStream); stderrStream.flush()
+      fd += 1
+    }
+  }
+
   private func executeJob(_ engine: LLTaskBuildEngine) {
     if context.isBuildCancelled {
       engine.taskIsComplete(DriverBuildValue.jobExecution(success: false))
@@ -545,6 +555,7 @@ class ExecuteJobRule: LLBuildRule {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: context.forceResponseFiles)
 
+      fixupFDsForCompile(job);
       let process = try context.processType.launchProcess(
         arguments: arguments, env: env
       )
