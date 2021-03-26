@@ -669,6 +669,8 @@ extension Driver {
       // "batched foobar" messages.
       return jobs
     }
+    return jobs // dmu
+
     let noncompileJobs = jobs.filter {$0.kind != .compile}
     let compileJobs = jobs.filter {$0.kind == .compile}
     let inputsAndJobs = compileJobs.flatMap { job in

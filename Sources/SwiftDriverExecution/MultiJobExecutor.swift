@@ -536,7 +536,20 @@ class ExecuteJobRule: LLBuildRule {
       print("HERE ", fd, " was open", to: &stderrStream); stderrStream.flush()
       fd += 1
     }
-  }
+    let p = Pipe()
+    let dr1 = dup2(p.fileHandleForWriting.fileDescriptor, 5)
+    assert(dr1 != -1)
+    let dr2 = dup2(p.fileHandleForReading.fileDescriptor, 3)
+    assert(dr2 != -1)
+    fcntl(3, F_SETFL, 0)
+
+    let p2 = Pipe()
+    let dr3 = dup2(p.fileHandleForWriting.fileDescriptor, 4)
+    assert(dr3 != -1)
+    let dr4 = dup2(p.fileHandleForReading.fileDescriptor, 6)
+    assert(dr4 != -1)
+    fcntl(4, F_SETFL, 0)
+   }
 
   private func executeJob(_ engine: LLTaskBuildEngine) {
     if context.isBuildCancelled {
@@ -554,11 +567,28 @@ class ExecuteJobRule: LLBuildRule {
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: context.forceResponseFiles)
-
+      //dmu sync
       fixupFDsForCompile(job);
       let process = try context.processType.launchProcess(
         arguments: arguments, env: env
       )
+      let pris = job.primaryInputs
+      assert(pris.count == 1)
+      let pri = pris[0]
+      let priName = pri.file.name
+      while true {
+        var b: UInt8 = 0
+        let c = withUnsafeMutablePointer(to: &b) {
+           read(6, $0, 1)
+        }
+        if c == 1 {break}
+      }
+      while true {
+        let c = write(5, priName, priName.count)
+        if c == priName.count {break}
+        assert(c == -1 && errno == EAGAIN)
+      }
+      close(4)
       pid = Int(process.processID)
 
       // Add it to the process set if it's a real process.
