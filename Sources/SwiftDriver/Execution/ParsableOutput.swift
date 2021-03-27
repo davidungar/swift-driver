@@ -50,14 +50,14 @@ import Foundation
     }
   }
 
-  public let pid: Int
+  public let pid: Pid
   public let inputs: [String]
   public let outputs: [Output]
   public let commandExecutable: String
   public let commandArguments: [String]
 
   public init(
-    pid: Int,
+    pid: Pid,
     inputs: [String],
     outputs: [Output],
     commandExecutable: String,
@@ -93,14 +93,14 @@ import Foundation
 
 @_spi(Testing) public struct FinishedMessage: Encodable {
   let exitStatus: Int
-  let pid: Int
+  let pid: Pid
   let output: String?
 
   // proc-info
 
   public init(
     exitStatus: Int,
-    pid: Int,
+    pid: Pid,
     output: String?
   ) {
     self.exitStatus = exitStatus
@@ -116,12 +116,12 @@ import Foundation
 }
 
 @_spi(Testing) public struct SignalledMessage: Encodable {
-  let pid: Int
+  let pid: Pid
   let output: String?
   let errorMessage: String
   let signal: Int
 
-  public init(pid: Int, output: String?, errorMessage: String, signal: Int) {
+  public init(pid: Pid, output: String?, errorMessage: String, signal: Int) {
     self.pid = pid
     self.output = output
     self.errorMessage = errorMessage

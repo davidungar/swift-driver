@@ -50,7 +50,7 @@ final class ToolExecutionDelegate: JobExecutionDelegate {
     self.diagnosticEngine = diagnosticEngine
   }
 
-  public func jobStarted(job: Job, arguments: [String], pid: Int) {
+  public func jobStarted(job: Job, arguments: [String], pid: Pid) {
     if showJobLifecycle {
       diagnosticEngine.emit(.remark_job_lifecycle("Starting", job))
     }
@@ -80,7 +80,7 @@ final class ToolExecutionDelegate: JobExecutionDelegate {
     }
   }
 
-  public func jobFinished(job: Job, result: ProcessResult, pid: Int) {
+  public func jobFinished(job: Job, result: ProcessResult, pid: Pid) {
      if showJobLifecycle {
       diagnosticEngine.emit(.remark_job_lifecycle("Finished", job))
     }

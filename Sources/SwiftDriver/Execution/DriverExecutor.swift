@@ -132,11 +132,16 @@ extension DriverExecutor {
 
 public protocol JobExecutionDelegate {
   /// Called when a job starts executing.
-  func jobStarted(job: Job, arguments: [String], pid: Int)
+  func jobStarted(job: Job, arguments: [String], pid: Pid)
   
   /// Called when a job finished.
-  func jobFinished(job: Job, result: ProcessResult, pid: Int)
+  func jobFinished(job: Job, result: ProcessResult, pid: Pid)
 
   /// Called when a job is skipped.
   func jobSkipped(job: Job)
+}
+
+public struct Pid: Codable {
+  public let pid: Int
+  public init(_ pid: TSCBasic.Process.ProcessID) { self.pid = Int(pid) }
 }

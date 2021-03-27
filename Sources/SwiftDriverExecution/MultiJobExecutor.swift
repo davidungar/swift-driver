@@ -599,13 +599,13 @@ class ExecuteJobRule: LLBuildRule {
   }
 
   private func executeCompileJob(_ engine: LLTaskBuildEngine, _ env: [String: String]
-  ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Int) {
+  ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Pid) {
     let context = self.context
     let resolver = context.argsResolver
     let job = myJob
 
     var pendingFinish = false
-    var pid = 0
+    var pid = Pid(0)
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: context.forceResponseFiles)
@@ -629,7 +629,7 @@ class ExecuteJobRule: LLBuildRule {
        }
 
 
-      pid = Int(process.processID)
+      pid = Pid(process.processID)
 
       // Add it to the process set if it's a real process.
       if case let realProcess as TSCBasic.Process = process {
@@ -661,13 +661,13 @@ class ExecuteJobRule: LLBuildRule {
   }
 
   private func executeNonCompileJob(_ engine: LLTaskBuildEngine, _ env: [String: String]
-  ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Int) {
+  ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Pid) {
     let context = self.context
     let resolver = context.argsResolver
     let job = myJob
 
     var pendingFinish = false
-    var pid = 0
+    var pid = Pid(0)
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: context.forceResponseFiles)
@@ -675,7 +675,7 @@ class ExecuteJobRule: LLBuildRule {
       let process = try context.processType.launchProcess(
         arguments: arguments, env: env
       )
-      pid = Int(process.processID)
+      pid = Pid(process.processID)
 
       // Add it to the process set if it's a real process.
       if case let realProcess as TSCBasic.Process = process {
