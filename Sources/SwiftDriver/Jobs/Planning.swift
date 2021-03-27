@@ -669,7 +669,6 @@ extension Driver {
       // "batched foobar" messages.
       return jobs
     }
-    return jobs // dmu
 
     let noncompileJobs = jobs.filter {$0.kind != .compile}
     let compileJobs = jobs.filter {$0.kind == .compile}
@@ -734,6 +733,8 @@ extension Driver {
     guard numInputFiles > 0 else {
       return 0
     }
+    return 1
+
     guard let info = info else {
       return 1 // not batch mode
     }
@@ -848,7 +849,7 @@ extension Driver {
         return (num + div - 1) / div
     }
 
-    let defaultSizeLimit = 25
+    let defaultSizeLimit = 1000000
     let sizeLimit = info.sizeLimit ?? defaultSizeLimit
 
     let numTasks = numParallelJobs ?? 1

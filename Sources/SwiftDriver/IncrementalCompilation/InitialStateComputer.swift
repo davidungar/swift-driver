@@ -209,16 +209,20 @@ extension IncrementalCompilationState.InitialStateComputer {
         compileGroups[input]
       }
 
-      let mandatoryJobsInOrder = try
-        jobsInPhases.beforeCompiles +
-        batchJobFormer.formBatchedJobs(
-          mandatoryCompileGroupsInOrder.flatMap {$0.allJobs()},
-          showJobLifecycle: showJobLifecycle)
+     let batchedJobs = try batchJobFormer.formBatchedJobs(
+        mandatoryCompileGroupsInOrder.flatMap {$0.allJobs()},
+        showJobLifecycle: showJobLifecycle)
+      assert(batchedJobs.count == 1)
+      let theBatchJob = batchedJobs[0]
+
+      let mandatoryJobsInOrder =
+        jobsInPhases.beforeCompiles + Array<Job>(repeating: theBatchJob, count: 20)
 
       moduleDependencyGraph.phase = .buildingAfterEachCompilation
       return (skippedCompileGroups: [:],
               mandatoryJobsInOrder: mandatoryJobsInOrder)
     }
+    fatalError("unimp mandatory")
     moduleDependencyGraph.phase = .updatingAfterCompilation
 
 
