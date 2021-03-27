@@ -545,11 +545,37 @@ class ExecuteJobRule: LLBuildRule {
     }
 
     let env = context.env.merging(myJob.extraEnvironment, uniquingKeysWith: { $1 })
-    let (result, pendingFinish, pid) = executeJobReally(engine, env)
+    let (result, pendingFinish, pid) = myJob.kind == .compile
+    ? executeCompileJob(engine, env)
+    : executeNonCompileJob(engine, env)
     let value: DriverBuildValue
-    do {
-      value = try result.get()
-    } catch {
+    switch result {
+    case .success(let processResult):
+      let success = processResult.exitStatus == .terminated(code: EXIT_SUCCESS)
+      if !success {
+        switch processResult.exitStatus {
+        case let .terminated(code):
+          if !myJob.kind.isCompile || code != EXIT_FAILURE {
+            context.diagnosticsEngine.emit(.error_command_failed(kind: myJob.kind, code: code))
+          }
+  #if !os(Windows)
+        case let .signalled(signal):
+          // An interrupt of an individual compiler job means it was deliberatly cancelled,
+          // most likely by the driver itself. This does not constitute an error.
+          if signal != SIGINT {
+            context.diagnosticsEngine.emit(.error_command_signalled(kind: myJob.kind, signal: signal))
+          }
+  #endif
+        }
+      }
+      // Inform the delegate about job finishing.
+      context.delegateQueue.sync {
+        context.executorDelegate.jobFinished(job: myJob, result: processResult, pid: pid)
+      }
+      context.cancelBuildIfNeeded(processResult)
+      value = .jobExecution(success: success)
+
+    case .failure(let error):
       if error is DiagnosticData {
         context.diagnosticsEngine.emit(error)
       }
@@ -569,17 +595,15 @@ class ExecuteJobRule: LLBuildRule {
       }
       value = .jobExecution(success: false)
     }
-
     engine.taskIsComplete(value)
   }
 
-  private func executeJobReally(_ engine: LLTaskBuildEngine, _ env: [String: String]
-  ) -> (result: Result<DriverBuildValue, Error>, pendingFinish: Bool, pid: Int) {
+  private func executeCompileJob(_ engine: LLTaskBuildEngine, _ env: [String: String]
+  ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Int) {
     let context = self.context
     let resolver = context.argsResolver
     let job = myJob
 
-    let value: DriverBuildValue
     var pendingFinish = false
     var pid = 0
     do {
@@ -588,9 +612,6 @@ class ExecuteJobRule: LLBuildRule {
       let (frontendRead, driverWrite) = makeAPipe()
       let (driverRead, frontendWrite) = makeAPipe()
 
-//      let process = try context.processType.launchProcess(
-//        arguments: arguments, env: env
-//      )
       let process = try Process(arguments: arguments, environment: env, outputRedirection: .none)
 
 
@@ -631,34 +652,46 @@ class ExecuteJobRule: LLBuildRule {
 
 
       let result = try process.waitUntilExit()
-      let success = result.exitStatus == .terminated(code: EXIT_SUCCESS)
 
-      if !success {
-        switch result.exitStatus {
-        case let .terminated(code):
-          if !job.kind.isCompile || code != EXIT_FAILURE {
-            context.diagnosticsEngine.emit(.error_command_failed(kind: job.kind, code: code))
-          }
-#if !os(Windows)
-        case let .signalled(signal):
-          // An interrupt of an individual compiler job means it was deliberatly cancelled,
-          // most likely by the driver itself. This does not constitute an error.
-          if signal != SIGINT {
-            context.diagnosticsEngine.emit(.error_command_signalled(kind: job.kind, signal: signal))
-          }
-#endif
-        }
+
+      return (Result.success(result), pendingFinish, pid)
+    } catch {
+      return (Result.failure(error), pendingFinish, pid)
+    }
+  }
+
+  private func executeNonCompileJob(_ engine: LLTaskBuildEngine, _ env: [String: String]
+  ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Int) {
+    let context = self.context
+    let resolver = context.argsResolver
+    let job = myJob
+
+    var pendingFinish = false
+    var pid = 0
+    do {
+      let arguments: [String] = try resolver.resolveArgumentList(for: job,
+                                                                 forceResponseFiles: context.forceResponseFiles)
+
+      let process = try context.processType.launchProcess(
+        arguments: arguments, env: env
+      )
+      pid = Int(process.processID)
+
+      // Add it to the process set if it's a real process.
+      if case let realProcess as TSCBasic.Process = process {
+        try context.processSet?.add(realProcess)
       }
 
-      // Inform the delegate about job finishing.
+      // Inform the delegate.
       context.delegateQueue.sync {
-        context.executorDelegate.jobFinished(job: job, result: result, pid: pid)
+        context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
       }
-      pendingFinish = false
-      context.cancelBuildIfNeeded(result)
-      value = .jobExecution(success: success)
+      pendingFinish = true
 
-      return (Result.success(value), pendingFinish, pid)
+      let result = try process.waitUntilExit()
+
+
+      return (Result.success(result), pendingFinish, pid)
     } catch {
       return (Result.failure(error), pendingFinish, pid)
     }
