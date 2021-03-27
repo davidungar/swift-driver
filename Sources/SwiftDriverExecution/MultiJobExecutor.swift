@@ -591,11 +591,11 @@ class ExecuteJobRule: LLBuildRule {
 
       try process.launch2(3, 4)
 
-      do {
-        var buf = Array<Int8>(repeating: 0, count: 10000)
-        let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 1) }
-        assert(rres == 1)
-      }
+//      do {
+//        var buf = Array<Int8>(repeating: 0, count: 10000)
+//        let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 1) }
+//        assert(rres == 1)
+//      }
       do {
         let pris = job.primaryInputs
         assert(pris.count == 1)
