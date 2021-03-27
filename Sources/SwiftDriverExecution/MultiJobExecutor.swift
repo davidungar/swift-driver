@@ -219,6 +219,10 @@ public final class MultiJobExecutor {
         executorDelegate.jobSkipped(job: job)
       }
     }
+
+    fileprivate func getCompileServer() -> (r: Int32, w: Int32) {
+
+    }
   }
 
   /// The work to be done.
@@ -546,8 +550,8 @@ class ExecuteJobRule: LLBuildRule {
 
     let env = context.env.merging(myJob.extraEnvironment, uniquingKeysWith: { $1 })
     let (result, pendingFinish, pid) = myJob.kind == .compile
-    ? executeCompileJob(engine, env)
-    : executeNonCompileJob(engine, env)
+    ? executeCompileJob(env: env)
+    : executeNonCompileJob(env: env)
     let value: DriverBuildValue
     switch result {
     case .success(let processResult):
@@ -598,69 +602,7 @@ class ExecuteJobRule: LLBuildRule {
     engine.taskIsComplete(value)
   }
 
-  private func executeCompileJob(_ engine: LLTaskBuildEngine, _ env: [String: String]
-  ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Pid) {
-    let context = self.context
-    let resolver = context.argsResolver
-    let job = myJob
-
-    var pendingFinish = false
-    var pid = Pid(0)
-    do {
-      let arguments: [String] = try resolver.resolveArgumentList(for: job,
-                                                                 forceResponseFiles: context.forceResponseFiles)
-      let (frontendRead, driverWrite) = makeAPipe()
-      let (driverRead, frontendWrite) = makeAPipe()
-
-      let process = try Process(arguments: arguments, environment: env, outputRedirection: .none)
-
-
-      try process.launch2(frontendRead, frontendWrite, driverRead, driverWrite)
-      print("HERE launched", to: &stderrStream); stderrStream.flush()
-
-      do {
-        let pris = job.primaryInputs
-        assert(pris.count == 1)
-        let pri = pris[0].file.name
-        let wrres = write(driverWrite, pri, pri.count)
-        if wrres != pri.count {
-          abort()
-        }
-       }
-
-
-      pid = Pid(process.processID)
-
-      // Add it to the process set if it's a real process.
-      if case let realProcess as TSCBasic.Process = process {
-        try context.processSet?.add(realProcess)
-      }
-
-      // Inform the delegate.
-      context.delegateQueue.sync {
-        context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
-      }
-      pendingFinish = true
-
-      do {
-        var buf = Array<Int8>(repeating: 0, count: 10000)
-        let rres = withUnsafeMutablePointer(to: &buf) { read(driverRead, $0, 1) }
-        assert(rres == 1)
-      }
-      close(driverWrite)
-      close(driverRead)
-
-
-      let result = try process.waitUntilExit()
-
-
-      return (Result.success(result), pendingFinish, pid)
-    } catch {
-      return (Result.failure(error), pendingFinish, pid)
-    }
-  }
-
-  private func executeNonCompileJob(_ engine: LLTaskBuildEngine, _ env: [String: String]
+  private func executeNonCompileJob(env: [String: String]
   ) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Pid) {
     let context = self.context
     let resolver = context.argsResolver
@@ -694,6 +636,77 @@ class ExecuteJobRule: LLBuildRule {
       return (Result.success(result), pendingFinish, pid)
     } catch {
       return (Result.failure(error), pendingFinish, pid)
+    }
+  }
+
+  private func executeCompileJob(env: [String: String]) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Pid) {
+    let context = self.context
+    let resolver = context.argsResolver
+    let job = myJob
+    let arguments: [String] = try! resolver.resolveArgumentList(for: job,
+                                                               forceResponseFiles: context.forceResponseFiles)
+
+    let (r, w) = context.getCompileServer()
+
+    func writeSourceFileName() {
+      let pris = job.primaryInputs
+      assert(pris.count == 1)
+      let pri = pris[0].file.name
+      let wrres = write(w, pri, pri.count)
+      if wrres != pri.count {
+        abort()
+      }
+    }
+    func readCompletion() {
+      var buf = Array<Int8>(repeating: 0, count: 10000)
+      let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 1) }
+      assert(rres == 1)
+    }
+
+    writeSourceFileName()
+    // Inform the delegate.
+    let pid = Pid(0)
+    context.delegateQueue.sync {
+      context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
+    }
+
+    readCompletion()
+    let output, stderrOutput: [UInt8]
+
+    let processResult = ProcessResult(arguments: arguments,
+                                      environment: env,
+                                      exitStatusCode: 0,
+                                      output: .success(output),
+                                      stderrOutput: .success(stderrOutput))
+
+
+    return (Result.success(processResult), false, pid)
+  }
+
+  private func launchCompileServer(_ env: [String: String], _ job: Job
+  ) -> (read: Int32, write: Int32, pid: Pid) {
+    let context = self.context
+    let resolver = context.argsResolver
+    let job = myJob
+
+     var pid = Pid(0)
+    do {
+      let arguments: [String] = try resolver.resolveArgumentList(for: job,
+                                                                 forceResponseFiles: context.forceResponseFiles)
+      let (frontendRead, driverWrite) = makeAPipe()
+      let (driverRead, frontendWrite) = makeAPipe()
+
+      let process = Process(arguments: arguments, environment: env, outputRedirection: .none)
+      try process.launch2(frontendRead, frontendWrite, driverRead, driverWrite)
+      print("HERE launched", to: &stderrStream); stderrStream.flush()
+      pid = Pid(process.processID)
+
+      try context.processSet?.add(process)
+
+      return (driverRead, driverWrite, pid)
+    }
+    catch {
+      fatalError("launchCompileServer")
     }
   }
 }
