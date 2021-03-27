@@ -543,10 +543,41 @@ class ExecuteJobRule: LLBuildRule {
       engine.taskIsComplete(DriverBuildValue.jobExecution(success: false))
       return
     }
+
+    let env = context.env.merging(myJob.extraEnvironment, uniquingKeysWith: { $1 })
+    let (result, pendingFinish, pid) = executeJobReally(engine, env)
+    let value: DriverBuildValue
+    do {
+      value = try result.get()
+    } catch {
+      if error is DiagnosticData {
+        context.diagnosticsEngine.emit(error)
+      }
+      // Only inform finished job if the job has been started, otherwise the build
+      // system may complain about malformed output
+      if (pendingFinish) {
+        context.delegateQueue.sync {
+          let result = ProcessResult(
+            arguments: [],
+            environment: env,
+            exitStatus: .terminated(code: EXIT_FAILURE),
+            output: Result.success([]),
+            stderrOutput: Result.success([])
+          )
+          context.executorDelegate.jobFinished(job: myJob, result: result, pid: pid)
+        }
+      }
+      value = .jobExecution(success: false)
+    }
+
+    engine.taskIsComplete(value)
+  }
+
+  private func executeJobReally(_ engine: LLTaskBuildEngine, _ env: [String: String]
+  ) -> (result: Result<DriverBuildValue, Error>, pendingFinish: Bool, pid: Int) {
     let context = self.context
     let resolver = context.argsResolver
     let job = myJob
-    let env = context.env.merging(job.extraEnvironment, uniquingKeysWith: { $1 })
 
     let value: DriverBuildValue
     var pendingFinish = false
@@ -626,28 +657,11 @@ class ExecuteJobRule: LLBuildRule {
       pendingFinish = false
       context.cancelBuildIfNeeded(result)
       value = .jobExecution(success: success)
-    } catch {
-      if error is DiagnosticData {
-        context.diagnosticsEngine.emit(error)
-      }
-      // Only inform finished job if the job has been started, otherwise the build
-      // system may complain about malformed output
-      if (pendingFinish) {
-        context.delegateQueue.sync {
-          let result = ProcessResult(
-            arguments: [],
-            environment: env,
-            exitStatus: .terminated(code: EXIT_FAILURE),
-            output: Result.success([]),
-            stderrOutput: Result.success([])
-          )
-          context.executorDelegate.jobFinished(job: job, result: result, pid: pid)
-        }
-      }
-      value = .jobExecution(success: false)
-    }
 
-    engine.taskIsComplete(value)
+      return (Result.success(value), pendingFinish, pid)
+    } catch {
+      return (Result.failure(error), pendingFinish, pid)
+    }
   }
 }
 
