@@ -528,28 +528,34 @@ class ExecuteJobRule: LLBuildRule {
     }
   }
 
-  private func fixupFDsForCompile(_ job: Job) {
-    guard job.kind == .compile else {return}
-    var fd: Int32 = 3
-    while (true) {
-      guard close(fd) == 0 else {break}
-      print("HERE ", fd, " was open", to: &stderrStream); stderrStream.flush()
-      fd += 1
-    }
+  private func makeAPipe(_ r: Int32, _ w: Int32) {
     let p = Pipe()
-    let dr1 = dup2(p.fileHandleForWriting.fileDescriptor, 5)
-    assert(dr1 != -1)
-    let dr2 = dup2(p.fileHandleForReading.fileDescriptor, 3)
-    assert(dr2 != -1)
-    fcntl(3, F_SETFL, 0)
+    func move(from a: Int32, to b: Int32) {
+      guard a != b else { return }
+      let r = dup2(a, b)
+      assert(r == b)
+      close(a)
+    }
+    move(from: p.fileHandleForReading.fileDescriptor, to: r)
+    move(from: p.fileHandleForWriting.fileDescriptor, to: w)
 
-    let p2 = Pipe()
-    let dr3 = dup2(p.fileHandleForWriting.fileDescriptor, 4)
-    assert(dr3 != -1)
-    let dr4 = dup2(p.fileHandleForReading.fileDescriptor, 6)
-    assert(dr4 != -1)
-    fcntl(4, F_SETFL, 0)
-   }
+    do {
+      let rr = fcntl(r, F_SETFL, O_NONBLOCK)
+      assert(rr == 0)
+    }
+
+  }
+
+  private let frontendRead: Int32 = 3
+  private let frontendWrite: Int32 = 4
+  private let meRead: Int32 = 5
+  private let meWrite: Int32 = 6
+
+  private func fixupFDsForCompile(_ job: Job) -> (r: Int32, w: Int32) {
+    makeAPipe(frontendRead, meWrite)
+    makeAPipe(meRead, frontendWrite)
+    return (meRead, meWrite)
+  }
 
   private func executeJob(_ engine: LLTaskBuildEngine) {
     if context.isBuildCancelled {
@@ -568,27 +574,31 @@ class ExecuteJobRule: LLBuildRule {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: context.forceResponseFiles)
       //dmu sync
-      fixupFDsForCompile(job);
-      let process = try context.processType.launchProcess(
-        arguments: arguments, env: env
-      )
-      let pris = job.primaryInputs
-      assert(pris.count == 1)
-      let pri = pris[0]
-      let priName = pri.file.name
-      while true {
-        var b: UInt8 = 0
-        let c = withUnsafeMutablePointer(to: &b) {
-           read(6, $0, 1)
+      let (r, w) = fixupFDsForCompile(job)
+
+
+//      let process = try context.processType.launchProcess(
+//        arguments: arguments, env: env
+//      )
+      let process = try Process(arguments: arguments, environment: env, outputRedirection: .none)
+      try process.launch()
+
+//      do {
+//        var buf = Array<Int8>(repeating: 0, count: 100)
+//        let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 100) }
+//        assert(rres == 1)
+//      }
+      do {
+        let pris = job.primaryInputs
+        assert(pris.count == 1)
+        let pri = pris[0].file.name
+        let wrres = write(w, pri, pri.count)
+        if wrres != pri.count {
+          abort()
         }
-        if c == 1 {break}
       }
-      while true {
-        let c = write(5, priName, priName.count)
-        if c == priName.count {break}
-        assert(c == -1 && errno == EAGAIN)
-      }
-      close(4)
+
+
       pid = Int(process.processID)
 
       // Add it to the process set if it's a real process.
