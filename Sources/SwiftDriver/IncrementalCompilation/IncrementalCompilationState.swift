@@ -257,7 +257,7 @@ extension IncrementalCompilationState {
         return []
       }
     }
-    return try driver.formBatchedJobs(unbatched, showJobLifecycle: driver.showJobLifecycle)
+    return try driver.formBatchedJobs(unbatched, showJobLifecycle: driver.showJobLifecycle, .oneInput)
   }
 }
 

@@ -131,7 +131,8 @@ extension Driver {
       // can be returned from `planBuild`.
       // But in that case, don't emit lifecycle messages.
       formBatchedJobs(jobsInPhases.allJobs,
-                      showJobLifecycle: showJobLifecycle && incrementalCompilationState == nil),
+                      showJobLifecycle: showJobLifecycle && incrementalCompilationState == nil,
+                        .normal),
       incrementalCompilationState
     )
   }
@@ -650,6 +651,10 @@ extension Diagnostic.Message {
   }
 }
 
+enum BatchFormingMode {
+  case normal, allInputs, oneInput
+}
+
 // MARK: Batch mode
 extension Driver {
 
@@ -663,8 +668,8 @@ extension Driver {
   ///
   /// So, in order to avoid making jobs and rebatching, the code would have to just get outputs for each
   /// compilation. But `compileJob` intermixes the output computation with other stuff.
-  mutating func formBatchedJobs(_ jobs: [Job], showJobLifecycle: Bool) throws -> [Job] {
-    guard compilerMode.isBatchCompile else {
+  mutating func formBatchedJobs(_ jobs: [Job], showJobLifecycle: Bool, _ mode: BatchFormingMode) throws -> [Job] {
+    guard compilerMode.isBatchCompile && mode != .oneInput else {
       // Don't even go through the logic so as to not print out confusing
       // "batched foobar" messages.
       return jobs
@@ -681,7 +686,8 @@ extension Driver {
 
     let partitions = batchPartitions(
       inputs: inputsInOrder,
-      showJobLifecycle: showJobLifecycle)
+      showJobLifecycle: showJobLifecycle,
+      mode)
     let outputType = parsedOptions.hasArgument(.embedBitcode)
       ? .llvmBitcode
       : compilerOutputType
@@ -733,7 +739,6 @@ extension Driver {
     guard numInputFiles > 0 else {
       return 0
     }
-    return 1
 
     guard let info = info else {
       return 1 // not batch mode
@@ -868,9 +873,11 @@ extension Driver {
 
   private func batchPartitions(
     inputs: [TypedVirtualPath],
-    showJobLifecycle: Bool
+    showJobLifecycle: Bool,
+    _ mode: BatchFormingMode
   ) -> BatchPartitions {
-    let numScheduledPartitions = numberOfBatchPartitions(
+    let numScheduledPartitions = mode == .oneInput ? 1 :
+    numberOfBatchPartitions(
       compilerMode.batchModeInfo,
       numInputFiles: inputs.count)
 

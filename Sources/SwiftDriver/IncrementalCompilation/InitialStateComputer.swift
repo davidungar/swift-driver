@@ -208,16 +208,14 @@ extension IncrementalCompilationState.InitialStateComputer {
         input -> CompileJobGroup? in
         compileGroups[input]
       }
-
-     let batchedJobs = try batchJobFormer.formBatchedJobs(
+      
+      let batchedJobs = try batchJobFormer.formBatchedJobs(
         mandatoryCompileGroupsInOrder.flatMap {$0.allJobs()},
-        showJobLifecycle: showJobLifecycle)
-      assert(batchedJobs.count == 1)
-      let theBatchJob = batchedJobs[0]
-
-      let mandatoryJobsInOrder =
-        jobsInPhases.beforeCompiles + Array<Job>(repeating: theBatchJob, count: 20)
-
+        showJobLifecycle: showJobLifecycle,
+          .oneInput)
+      
+      let mandatoryJobsInOrder = jobsInPhases.beforeCompiles + batchedJobs
+      
       moduleDependencyGraph.phase = .buildingAfterEachCompilation
       return (skippedCompileGroups: [:],
               mandatoryJobsInOrder: mandatoryJobsInOrder)
@@ -244,7 +242,8 @@ extension IncrementalCompilationState.InitialStateComputer {
       jobsInPhases.beforeCompiles +
       batchJobFormer.formBatchedJobs(
         mandatoryCompileGroupsInOrder.flatMap {$0.allJobs()},
-        showJobLifecycle: showJobLifecycle)
+        showJobLifecycle: showJobLifecycle,
+          .oneInput)
 
     return (skippedCompileGroups: skippedCompileGroups,
             mandatoryJobsInOrder: mandatoryJobsInOrder)
