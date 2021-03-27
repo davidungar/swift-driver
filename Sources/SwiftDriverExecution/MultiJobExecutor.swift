@@ -88,6 +88,27 @@ public final class MultiJobExecutor {
     /// The value of the option
     let continueBuildingAfterErrors: Bool
 
+    /// Compiler servers
+    struct CompilerServerPool {
+      private let compileServerQueue: DispatchQueue = DispatchQueue(label: "com.apple.swift-driver.compile-servers", qos: .userInteractive)
+      private var freeCompileServers: [CompilerServer]
+
+      mutating fileprivate func acquireCompileServer() -> CompilerServer {
+        compileServerQueue.sync {
+          if freeCompileServers.isEmpty {
+            abort() // launchCompileServer first N times, then what??
+          }
+          return freeCompileServers.removeLast()
+        }
+      }
+      mutating fileprivate func releaseCompileServer(_ cs: CompilerServer) {
+        compileServerQueue.sync {
+          freeCompileServers.append(cs)
+        }
+      }
+    }
+    var compilerServers: CompilerServerPool
+
 
     init(
       argsResolver: ArgsResolver,
@@ -220,9 +241,7 @@ public final class MultiJobExecutor {
       }
     }
 
-    fileprivate func getCompileServer() -> (r: Int32, w: Int32) {
 
-    }
   }
 
   /// The work to be done.
@@ -532,16 +551,6 @@ class ExecuteJobRule: LLBuildRule {
     }
   }
 
-  private func makeAPipe() -> (r: Int32, w: Int32) {
-    let p = Pipe()
-    return (p.fileHandleForReading.fileDescriptor, p.fileHandleForWriting.fileDescriptor)
-  }
-
-//    do {
-//      let rr = fcntl(r, F_SETFL, O_NONBLOCK)
-//      assert(rr == 0)
-//    }
-
   private func executeJob(_ engine: LLTaskBuildEngine) {
     if context.isBuildCancelled {
       engine.taskIsComplete(DriverBuildValue.jobExecution(success: false))
@@ -646,32 +655,19 @@ class ExecuteJobRule: LLBuildRule {
     let arguments: [String] = try! resolver.resolveArgumentList(for: job,
                                                                forceResponseFiles: context.forceResponseFiles)
 
-    let (r, w) = context.getCompileServer()
+    var server = context.compilerServers.acquireCompileServer()
 
-    func writeSourceFileName() {
-      let pris = job.primaryInputs
-      assert(pris.count == 1)
-      let pri = pris[0].file.name
-      let wrres = write(w, pri, pri.count)
-      if wrres != pri.count {
-        abort()
-      }
-    }
-    func readCompletion() {
-      var buf = Array<Int8>(repeating: 0, count: 10000)
-      let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 1) }
-      assert(rres == 1)
-    }
-
-    writeSourceFileName()
+    server.writeSourceFileName(job)
     // Inform the delegate.
     let pid = Pid(0)
     context.delegateQueue.sync {
       context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
     }
 
-    readCompletion()
-    let output, stderrOutput: [UInt8]
+    server.readCompletion()
+    let (output, stderrOutput) = server.readOutputs()
+
+    context.compilerServers.releaseCompileServer(server)
 
     let processResult = ProcessResult(arguments: arguments,
                                       environment: env,
@@ -681,33 +677,6 @@ class ExecuteJobRule: LLBuildRule {
 
 
     return (Result.success(processResult), false, pid)
-  }
-
-  private func launchCompileServer(_ env: [String: String], _ job: Job
-  ) -> (read: Int32, write: Int32, pid: Pid) {
-    let context = self.context
-    let resolver = context.argsResolver
-    let job = myJob
-
-     var pid = Pid(0)
-    do {
-      let arguments: [String] = try resolver.resolveArgumentList(for: job,
-                                                                 forceResponseFiles: context.forceResponseFiles)
-      let (frontendRead, driverWrite) = makeAPipe()
-      let (driverRead, frontendWrite) = makeAPipe()
-
-      let process = Process(arguments: arguments, environment: env, outputRedirection: .none)
-      try process.launch2(frontendRead, frontendWrite, driverRead, driverWrite)
-      print("HERE launched", to: &stderrStream); stderrStream.flush()
-      pid = Pid(process.processID)
-
-      try context.processSet?.add(process)
-
-      return (driverRead, driverWrite, pid)
-    }
-    catch {
-      fatalError("launchCompileServer")
-    }
   }
 }
 
@@ -722,3 +691,76 @@ private extension TSCBasic.Diagnostic.Message {
     .error("\(kind.rawValue) command failed due to signal \(signal) (use -v to see invocation)")
   }
 }
+
+fileprivate struct CompilerServer {
+  let pid: Pid
+  let sourceFileNameFD, completionFD, outputFD, stderrOutputFD: Int32
+  var buf = Array<UInt8>(repeating: 0, count: 100000)
+
+  init(env: [String: String], job: Job, context: MultiJobExecutor.Context) {
+    let resolver = context.argsResolver
+
+    do {
+      let arguments: [String] = try resolver.resolveArgumentList(for: job,
+                                                                 forceResponseFiles: context.forceResponseFiles)
+      let (frontendRead, sourceFileNameFD) = makeAPipe()
+      let (completionFD, frontendWrite) = makeAPipe()
+      let (readStdout, writeStdout) = makeAPipe()
+      let (readStderr, writeStderr) = makeAPipe()
+
+      let process = Process(arguments: arguments, environment: env, outputRedirection: .none)
+      try process.launch2(one: writeStdout, two: writeStderr, three: frontendRead, four: frontendWrite, closing: [readStdout, readStderr, sourceFileNameFD, completionFD])
+      print("HERE launched", to: &stderrStream); stderrStream.flush()
+      self.pid = Pid(process.processID)
+
+      try context.processSet?.add(process)
+
+      self.sourceFileNameFD = sourceFileNameFD
+      self.completionFD = completionFD
+      self.outputFD = readStdout
+      self.stderrOutputFD = readStderr
+    }
+    catch {
+      fatalError("launchCompileServer")
+    }
+  }
+
+  func writeSourceFileName(_ job: Job) {
+    let pris = job.primaryInputs
+    assert(pris.count == 1)
+    let pri = pris[0].file.name
+    let wrres = write(sourceFileNameFD, pri, pri.count)
+    if wrres != pri.count {
+      abort()
+    }
+  }
+
+  func readCompletion() {
+    var buf = Array<Int8>(repeating: 0, count: 10000)
+    let rres = withUnsafeMutablePointer(to: &buf) { read(completionFD, $0, 1) }
+    assert(rres == 1)
+  }
+
+  mutating func readOutputs() -> ([UInt8], [UInt8]) {
+    let r = withUnsafeMutablePointer(to: &buf) {
+      read(outputFD, $0, buf.count)
+    }
+    assert(r > 0 && r < buf.count)
+    let stdout = Array(buf.prefix(r))
+    let r2 = withUnsafeMutablePointer(to: &buf) {read(stderrOutputFD, $0, buf.count)}
+    assert(r2 > 0 && r2 < buf.count)
+    let stderr = Array(buf.prefix(r2))
+    return (stdout, stderr)
+  }
+}
+
+
+private func makeAPipe() -> (r: Int32, w: Int32) {
+  let p = Pipe()
+  return (p.fileHandleForReading.fileDescriptor, p.fileHandleForWriting.fileDescriptor)
+}
+
+//    do {
+//      let rr = fcntl(r, F_SETFL, O_NONBLOCK)
+//      assert(rr == 0)
+//    }
