@@ -528,39 +528,15 @@ class ExecuteJobRule: LLBuildRule {
     }
   }
 
-  private func makeAPipe(_ r: Int32, _ w: Int32) {
+  private func makeAPipe() -> (r: Int32, w: Int32) {
     let p = Pipe()
-    func move(from a: Int32, to b: Int32) {
-      guard a != b else { return }
-      let r = dup2(a, b)
-      assert(r == b)
-      close(a)
-    }
-    move(from: p.fileHandleForReading.fileDescriptor, to: r)
-    move(from: p.fileHandleForWriting.fileDescriptor, to: w)
-
+    return (p.fileHandleForReading.fileDescriptor, p.fileHandleForWriting.fileDescriptor)
+  }
 
 //    do {
 //      let rr = fcntl(r, F_SETFL, O_NONBLOCK)
 //      assert(rr == 0)
 //    }
-
-
-
-  }
-
-  private let frontendRead: Int32 = 3
-  private let frontendWrite: Int32 = 4
-  private let meRead: Int32 = 5
-  private let meWrite: Int32 = 6
-
-  private func fixupFDsForCompile(_ job: Job) -> (r: Int32, w: Int32) {
-    makeAPipe(frontendRead, meWrite)
-    makeAPipe(meRead, frontendWrite)
-
-
-    return (meRead, meWrite)
-  }
 
   private func executeJob(_ engine: LLTaskBuildEngine) {
     if context.isBuildCancelled {
@@ -578,9 +554,8 @@ class ExecuteJobRule: LLBuildRule {
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: context.forceResponseFiles)
-      //dmu sync
-      let (r, w) = fixupFDsForCompile(job)
-
+      let (frontendRead, driverWrite) = makeAPipe()
+      let (driverRead, frontendWrite) = makeAPipe()
 
 //      let process = try context.processType.launchProcess(
 //        arguments: arguments, env: env
@@ -588,24 +563,18 @@ class ExecuteJobRule: LLBuildRule {
       let process = try Process(arguments: arguments, environment: env, outputRedirection: .none)
 
 
+      try process.launch2(frontendRead, frontendWrite, driverRead, driverWrite)
+      print("HERE launched", to: &stderrStream); stderrStream.flush()
 
-      try process.launch2(3, 4)
-
-//      do {
-//        var buf = Array<Int8>(repeating: 0, count: 10000)
-//        let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 1) }
-//        assert(rres == 1)
-//      }
       do {
         let pris = job.primaryInputs
         assert(pris.count == 1)
         let pri = pris[0].file.name
-        let wrres = write(w, pri, pri.count)
+        let wrres = write(driverWrite, pri, pri.count)
         if wrres != pri.count {
           abort()
         }
-       close(w)
-      }
+       }
 
 
       pid = Int(process.processID)
@@ -620,6 +589,15 @@ class ExecuteJobRule: LLBuildRule {
         context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
       }
       pendingFinish = true
+
+      do {
+        var buf = Array<Int8>(repeating: 0, count: 10000)
+        let rres = withUnsafeMutablePointer(to: &buf) { read(driverRead, $0, 1) }
+        assert(rres == 1)
+      }
+      close(driverWrite)
+      close(driverRead)
+
 
       let result = try process.waitUntilExit()
       let success = result.exitStatus == .terminated(code: EXIT_SUCCESS)
