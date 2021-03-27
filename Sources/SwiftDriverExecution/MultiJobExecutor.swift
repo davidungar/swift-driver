@@ -539,10 +539,13 @@ class ExecuteJobRule: LLBuildRule {
     move(from: p.fileHandleForReading.fileDescriptor, to: r)
     move(from: p.fileHandleForWriting.fileDescriptor, to: w)
 
-    do {
-      let rr = fcntl(r, F_SETFL, O_NONBLOCK)
-      assert(rr == 0)
-    }
+
+//    do {
+//      let rr = fcntl(r, F_SETFL, O_NONBLOCK)
+//      assert(rr == 0)
+//    }
+
+
 
   }
 
@@ -554,6 +557,8 @@ class ExecuteJobRule: LLBuildRule {
   private func fixupFDsForCompile(_ job: Job) -> (r: Int32, w: Int32) {
     makeAPipe(frontendRead, meWrite)
     makeAPipe(meRead, frontendWrite)
+
+
     return (meRead, meWrite)
   }
 
@@ -581,13 +586,16 @@ class ExecuteJobRule: LLBuildRule {
 //        arguments: arguments, env: env
 //      )
       let process = try Process(arguments: arguments, environment: env, outputRedirection: .none)
-      try process.launch()
 
-//      do {
-//        var buf = Array<Int8>(repeating: 0, count: 100)
-//        let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 100) }
-//        assert(rres == 1)
-//      }
+
+
+      try process.launch2(3, 4)
+
+      do {
+        var buf = Array<Int8>(repeating: 0, count: 10000)
+        let rres = withUnsafeMutablePointer(to: &buf) { read(r, $0, 1) }
+        assert(rres == 1)
+      }
       do {
         let pris = job.primaryInputs
         assert(pris.count == 1)
@@ -596,6 +604,7 @@ class ExecuteJobRule: LLBuildRule {
         if wrres != pri.count {
           abort()
         }
+       close(w)
       }
 
 
