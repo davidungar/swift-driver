@@ -725,27 +725,31 @@ fileprivate struct CompilerServer {
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: forceResponseFiles)
-      let (frontendRead, sourceFileNameFD) = makeAPipe()
-      let (completionFD, frontendWrite) = makeAPipe()
-      let (readStdout, writeStdout) = makeAPipe()
-      let (readStderr, writeStderr) = makeAPipe()
+      let stdoutP = Pipe()
+      let stderrP = Pipe()
+      let sourceFileNameP = Pipe()
+      let completionP = Pipe()
 
       let process = Process(arguments: arguments, environment: env, outputRedirection: .none)
-      try process.launch2(one: writeStdout, two: writeStderr, three: frontendRead, four: frontendWrite, closing: [readStdout, readStderr, sourceFileNameFD, completionFD])
+      try process.launchCompileServer(
+        stdoutP: stdoutP,
+        stderrP: stderrP,
+        sourceFileNameP: sourceFileNameP,
+        completionP: completionP)
       print("HERE launched", to: &stderrStream); stderrStream.flush()
       self.pid = Pid(process.processID)
 
       try processSet?.add(process)
 
-      [readStdout, readStderr].forEach {
-        let fr = fcntl($0,  F_SETFL, O_NONBLOCK)
+      [stdoutP, stderrP].forEach {
+        let fr = fcntl($0.fileHandleForReading.fileDescriptor,  F_SETFL, O_NONBLOCK)
         assert(fr == 0)
       }
 
-      self.sourceFileNameFD = sourceFileNameFD
-      self.completionFD = completionFD
-      self.outputFD = readStdout
-      self.stderrOutputFD = readStderr
+      self.sourceFileNameFD = sourceFileNameP.fileHandleForWriting.fileDescriptor
+      self    .completionFD =     completionP.fileHandleForReading.fileDescriptor
+      self        .outputFD =         stdoutP.fileHandleForReading.fileDescriptor
+      self  .stderrOutputFD =         stderrP.fileHandleForReading.fileDescriptor
     }
     catch let error as SystemError {
       if case let .posix_spawn(rv, arguments)  = error {
@@ -795,18 +799,22 @@ fileprivate struct CompilerServer {
   }
 }
 
-
-private func makeAPipe() -> (r: Int32, w: Int32) {
-  let p = Pipe()
-  return (p.fileHandleForReading.fileDescriptor, p.fileHandleForWriting.fileDescriptor)
-}
-
 extension TSCBasic.Process {
 
 
-  public func launch2( one: Int32, two: Int32, three: Int32, four: Int32, closing: [Int32]) throws {
+  fileprivate func launchCompileServer(
+    stdoutP: Pipe,
+    stderrP: Pipe,
+    sourceFileNameP: Pipe,
+    completionP: Pipe
+  ) throws {
     precondition(arguments.count > 0 && !arguments[0].isEmpty, "Need at least one argument to launch the process.")
     precondition(!launched, "It is not allowed to launch the same process object again.")
+    precondition(Set(
+      [stdoutP, stderrP, sourceFileNameP, completionP]
+        .flatMap {[$0.fileHandleForReading.fileDescriptor, $0.fileHandleForWriting.fileDescriptor]}
+      )
+      .count == 8)
 
     // Set the launch bool to true.
     launched = true
@@ -889,11 +897,9 @@ extension TSCBasic.Process {
 
     // Set the attribute flags.
     var flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
-    if startNewProcessGroup {
       // Establish a separate process group.
-      flags |= POSIX_SPAWN_SETPGROUP
-      posix_spawnattr_setpgroup(&attributes, 0)
-    }
+    flags |= POSIX_SPAWN_SETPGROUP
+    posix_spawnattr_setpgroup(&attributes, 0)
 
     posix_spawnattr_setflags(&attributes, Int16(flags))
 
@@ -932,18 +938,35 @@ extension TSCBasic.Process {
     }
     defer { free(devNull) }
     // Open /dev/null as stdin.
-    posix_spawn_file_actions_addopen(&fileActions, 0, devNull, O_RDONLY, 0)
+    do {
+      let r = posix_spawn_file_actions_addopen(&fileActions, 0, devNull, O_RDONLY, 0)
+      if r != 0 {fatalError()}
+    }
 
-    posix_spawn_file_actions_adddup2(&fileActions, one, 1)
-    posix_spawn_file_actions_adddup2(&fileActions, two, 2)
-    posix_spawn_file_actions_adddup2(&fileActions, three, 3)
-    posix_spawn_file_actions_adddup2(&fileActions, four, 4)
     func closeIfOK(_ f: Int32) {
       if ![0, 1, 2, 3, 4].contains(f) {
-        posix_spawn_file_actions_addclose(&fileActions, f)
+        if posix_spawn_file_actions_addclose(&fileActions, f) != 0 {fatalError()}
       }
     }
-    ([one, two, three, four] + closing).forEach(closeIfOK)
+    let fdsToClose = [
+      stdoutP.fileHandleForReading,
+      stderrP.fileHandleForReading,
+      sourceFileNameP.fileHandleForWriting,
+      completionP.fileHandleForReading]
+      .map {$0.fileDescriptor}
+    fdsToClose.forEach(closeIfOK)
+
+    let fdsToDup = [
+      stdoutP.fileHandleForWriting,
+      stderrP.fileHandleForWriting,
+      sourceFileNameP.fileHandleForReading,
+      completionP.fileHandleForWriting]
+      .map {$0.fileDescriptor}
+
+    fdsToDup.enumerated() .forEach { i, fd in
+      let r = posix_spawn_file_actions_adddup2(&fileActions, fd, Int32(i + 1))
+      if r != 0 {fatalError()}
+    }
 
 
     let argv = CStringArray(arguments)
