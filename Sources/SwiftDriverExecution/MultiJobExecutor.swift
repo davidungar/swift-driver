@@ -94,9 +94,19 @@ public final class MultiJobExecutor {
       private var freeCompileServers: [CompilerServer]
 
       init(_ incrementalCompilerState: IncrementalCompilationState?,
-           numParallelJobs: Int) {
+           numParallelJobs: Int,
+           env: [String: String],
+           argsResolver: ArgsResolver,
+           processSet: ProcessSet?,
+           forceResponseFiles: Bool
+          ) {
         guard let incrementalCompilerState = incrementalCompilerState else {fatalError()}
-        self.freeCompileServers = Array(repeating: incrementalCompilerState.compileServerJob, count: numParallelJobs)
+        let compilerServer = CompilerServer(env: env,
+                                           job: incrementalCompilerState.compileServerJob,
+                                            resolver: argsResolver,
+                                            processSet: processSet,
+                                            forceResponseFiles: forceResponseFiles)
+        self.freeCompileServers = Array(repeating: compilerServer, count: numParallelJobs)
       }
 
       mutating fileprivate func acquireCompileServer() -> CompilerServer {
@@ -149,7 +159,13 @@ public final class MultiJobExecutor {
       self.recordedInputModificationDates = recordedInputModificationDates
       self.diagnosticsEngine = diagnosticsEngine
       self.processType = processType
-      self.compilerServers = CompilerServerPool(incrementalCompilationState, numParallelJobs: numParallelJobs)
+      self.compilerServers = CompilerServerPool(
+        incrementalCompilationState,
+        numParallelJobs: numParallelJobs,
+        env: env,
+        argsResolver: argsResolver,
+        processSet: processSet,
+        forceResponseFiles: forceResponseFiles)
     }
 
     private static func fillInJobsAndProducers(_ workload: DriverExecutorWorkload
@@ -705,12 +721,10 @@ fileprivate struct CompilerServer {
   let sourceFileNameFD, completionFD, outputFD, stderrOutputFD: Int32
   var buf = Array<UInt8>(repeating: 0, count: 100000)
 
-  init(env: [String: String], job: Job, context: MultiJobExecutor.Context) {
-    let resolver = context.argsResolver
-
+  init(env: [String: String], job: Job, resolver: ArgsResolver, processSet: ProcessSet?, forceResponseFiles: Bool) {
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
-                                                                 forceResponseFiles: context.forceResponseFiles)
+                                                                 forceResponseFiles: forceResponseFiles)
       let (frontendRead, sourceFileNameFD) = makeAPipe()
       let (completionFD, frontendWrite) = makeAPipe()
       let (readStdout, writeStdout) = makeAPipe()
@@ -721,7 +735,7 @@ fileprivate struct CompilerServer {
       print("HERE launched", to: &stderrStream); stderrStream.flush()
       self.pid = Pid(process.processID)
 
-      try context.processSet?.add(process)
+      try processSet?.add(process)
 
       [readStdout, readStderr].forEach {
         let fr = fcntl($0,  F_SETFL, O_NONBLOCK)

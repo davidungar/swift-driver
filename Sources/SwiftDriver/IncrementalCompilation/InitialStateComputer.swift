@@ -100,9 +100,15 @@ extension IncrementalCompilationState {
           inputsInvalidatedByExternals,
           batchJobFormer: &batchJobFormer)
 
+      let compileServerJob = try batchJobFormer.formBatchedJobs(
+        jobsInPhases.compileGroups.map {$0.compileJob},
+        showJobLifecycle: showJobLifecycle,
+          .oneInput)[0]
+
       return InitialState(graph: graph,
                           skippedCompileGroups: skippedCompileGroups,
-                          mandatoryJobsInOrder: mandatoryJobsInOrder)
+                          mandatoryJobsInOrder: mandatoryJobsInOrder,
+                          compileServerJob: compileServerJob)
     }
   }
 }

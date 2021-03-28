@@ -25,6 +25,8 @@ public class IncrementalCompilationState {
   /// Already batched, and in order of input files.
   public let mandatoryJobsInOrder: [Job]
 
+  public let compileServerJob: Job
+
   /// Sadly, has to be `var` for formBatchedJobs
   private var driver: Driver
 
@@ -93,11 +95,13 @@ public class IncrementalCompilationState {
       return nil
     }
 
+
     self.skippedCompileGroups = initial.skippedCompileGroups
     self.mandatoryJobsInOrder = initial.mandatoryJobsInOrder
+    self.compileServerJob = initial.compileServerJob
     self.jobsAfterCompiles = jobsInPhases.afterCompiles
     self.moduleDependencyGraph = initial.graph
-    self.driver = driver
+    self.driver = driver // remove this for new batching
   }
 }
 
@@ -123,6 +127,8 @@ extension IncrementalCompilationState {
     /// All of the pre-compile or compilation job (groups) known to be required
     /// for the first wave to execute.
     let mandatoryJobsInOrder: [Job]
+
+    let compileServerJob: Job
   }
 
 
