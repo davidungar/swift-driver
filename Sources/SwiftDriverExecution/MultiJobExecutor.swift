@@ -101,12 +101,21 @@ public final class MultiJobExecutor {
            forceResponseFiles: Bool
           ) {
         guard let incrementalCompilerState = incrementalCompilerState else {fatalError()}
-        let compilerServer = CompilerServer(env: env,
-                                           job: incrementalCompilerState.compileServerJob,
-                                            resolver: argsResolver,
-                                            processSet: processSet,
-                                            forceResponseFiles: forceResponseFiles)
-        self.freeCompileServers = Array(repeating: compilerServer, count: numParallelJobs)
+
+        do {
+          var newCompilerServer: CompilerServer {
+            CompilerServer(env: env,
+                           job: incrementalCompilerState.compileServerJob,
+                           resolver: argsResolver,
+                           processSet: processSet,
+                           forceResponseFiles: forceResponseFiles)
+          }
+
+          self.freeCompileServers = (0 ..< numParallelJobs).reduce(into: []) {
+            servers, _ in servers.append(newCompilerServer)
+          }
+        }
+        assert( Set(freeCompileServers.map {$0.sourceFileNameFD}).count == freeCompileServers.count)
       }
 
       mutating fileprivate func acquireCompileServer() -> CompilerServer {
@@ -718,8 +727,14 @@ private extension TSCBasic.Diagnostic.Message {
 
 fileprivate struct CompilerServer {
   let pid: Pid
-  let sourceFileNameFD, completionFD, outputFD, stderrOutputFD: Int32
+  let sourceFileNameP, completionP, stdoutP, stderrP: Pipe
+
   var buf = Array<UInt8>(repeating: 0, count: 100000)
+
+  var sourceFileNameFD: Int32 { sourceFileNameP.fileHandleForWriting.fileDescriptor}
+  var     completionFD: Int32 {     completionP.fileHandleForReading.fileDescriptor}
+  var         stdoutFD: Int32 {         stdoutP.fileHandleForReading.fileDescriptor}
+  var         stderrFD: Int32 {         stderrP.fileHandleForReading.fileDescriptor}
 
   init(env: [String: String], job: Job, resolver: ArgsResolver, processSet: ProcessSet?, forceResponseFiles: Bool) {
     do {
@@ -736,6 +751,7 @@ fileprivate struct CompilerServer {
         stderrP: stderrP,
         sourceFileNameP: sourceFileNameP,
         completionP: completionP)
+
       print("HERE launched", to: &stderrStream); stderrStream.flush()
       self.pid = Pid(process.processID)
 
@@ -745,11 +761,10 @@ fileprivate struct CompilerServer {
         let fr = fcntl($0.fileHandleForReading.fileDescriptor,  F_SETFL, O_NONBLOCK)
         assert(fr == 0)
       }
-
-      self.sourceFileNameFD = sourceFileNameP.fileHandleForWriting.fileDescriptor
-      self    .completionFD =     completionP.fileHandleForReading.fileDescriptor
-      self        .outputFD =         stdoutP.fileHandleForReading.fileDescriptor
-      self  .stderrOutputFD =         stderrP.fileHandleForReading.fileDescriptor
+      self.sourceFileNameP = sourceFileNameP
+      self.completionP = completionP
+      self.stdoutP = stdoutP
+      self.stderrP = stderrP
     }
     catch let error as SystemError {
       if case let .posix_spawn(rv, arguments)  = error {
@@ -763,6 +778,8 @@ fileprivate struct CompilerServer {
       print("cannot launch compile server", error.localizedDescription)
       fatalError("launchCompileServer")
     }
+
+
   }
 
   func writeSourceFileName(_ job: Job) {
@@ -776,6 +793,7 @@ fileprivate struct CompilerServer {
   }
 
   mutating func readCompletion() {
+    var buf = Array<UInt8>(repeating: 0, count: 2)
     let rres = withUnsafeMutablePointer(to: &buf) { read(completionFD, $0, 1) }
     assert(rres == 1)
   }
@@ -795,7 +813,7 @@ fileprivate struct CompilerServer {
       }
       return contents
     }
-    return (readOutput(fd: outputFD), readOutput(fd: stderrOutputFD))
+    return (readOutput(fd: stdoutFD), readOutput(fd: stderrFD))
   }
 }
 
@@ -948,13 +966,13 @@ extension TSCBasic.Process {
         if posix_spawn_file_actions_addclose(&fileActions, f) != 0 {fatalError()}
       }
     }
-    let fdsToClose = [
+    let fdsToCloseThere = [
       stdoutP.fileHandleForReading,
       stderrP.fileHandleForReading,
       sourceFileNameP.fileHandleForWriting,
       completionP.fileHandleForReading]
       .map {$0.fileDescriptor}
-    fdsToClose.forEach(closeIfOK)
+   //dmuxxx fdsToCloseThere.forEach(closeIfOK)
 
     let fdsToDup = [
       stdoutP.fileHandleForWriting,
@@ -964,8 +982,10 @@ extension TSCBasic.Process {
       .map {$0.fileDescriptor}
 
     fdsToDup.enumerated() .forEach { i, fd in
-      let r = posix_spawn_file_actions_adddup2(&fileActions, fd, Int32(i + 1))
-      if r != 0 {fatalError()}
+      if i != 1 { // stderr
+        let r = posix_spawn_file_actions_adddup2(&fileActions, fd, Int32(i + 1))
+        if r != 0 {fatalError()}
+      }
     }
 
 
@@ -976,6 +996,7 @@ extension TSCBasic.Process {
     guard rv == 0 else {
       throw SystemError.posix_spawn(rv, arguments)
     }
+  //dmuxxx  fdsToDup.forEach { close($0) }
 #endif // POSIX implementation
   }
 }
