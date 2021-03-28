@@ -972,7 +972,7 @@ extension TSCBasic.Process {
       sourceFileNameP.fileHandleForWriting,
       completionP.fileHandleForReading]
       .map {$0.fileDescriptor}
-   //dmuxxx fdsToCloseThere.forEach(closeIfOK)
+    fdsToCloseThere.forEach(closeIfOK)
 
     let fdsToDup = [
       stdoutP.fileHandleForWriting,
@@ -996,7 +996,7 @@ extension TSCBasic.Process {
     guard rv == 0 else {
       throw SystemError.posix_spawn(rv, arguments)
     }
-  //dmuxxx  fdsToDup.forEach { close($0) }
+    fdsToDup.forEach { close($0) }
 #endif // POSIX implementation
   }
 }
