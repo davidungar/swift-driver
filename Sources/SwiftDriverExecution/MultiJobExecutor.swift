@@ -747,7 +747,16 @@ fileprivate struct CompilerServer {
       self.outputFD = readStdout
       self.stderrOutputFD = readStderr
     }
+    catch let error as SystemError {
+      if case let .posix_spawn(rv, arguments)  = error {
+        print("SystemError.posix_spawn", rv, arguments)
+        fatalError("launchCompileServer")
+      }
+      print("cannot launch compile server", error.localizedDescription)
+      fatalError("launchCompileServer")
+    }
     catch {
+      print("cannot launch compile server", error.localizedDescription)
       fatalError("launchCompileServer")
     }
   }
@@ -790,4 +799,160 @@ fileprivate struct CompilerServer {
 private func makeAPipe() -> (r: Int32, w: Int32) {
   let p = Pipe()
   return (p.fileHandleForReading.fileDescriptor, p.fileHandleForWriting.fileDescriptor)
+}
+
+extension TSCBasic.Process {
+
+
+  public func launch2( one: Int32, two: Int32, three: Int32, four: Int32, closing: [Int32]) throws {
+    precondition(arguments.count > 0 && !arguments[0].isEmpty, "Need at least one argument to launch the process.")
+    precondition(!launched, "It is not allowed to launch the same process object again.")
+
+    // Set the launch bool to true.
+    launched = true
+
+    // Print the arguments if we are verbose.
+    if self.verbose {
+      stdoutStream <<< arguments.map({ $0.spm_shellEscaped() }).joined(separator: " ") <<< "\n"
+                                                                                            stdoutStream.flush()
+    }
+
+    // Look for executable.
+    let executable = arguments[0]
+    guard let executablePath = Process.findExecutable(executable) else {
+      throw Process.Error.missingExecutableProgram(program: executable)
+    }
+
+#if os(Windows)
+    _process = Foundation.Process()
+    _process?.arguments = Array(arguments.dropFirst()) // Avoid including the executable URL twice.
+    _process?.executableURL = executablePath.asURL
+    _process?.environment = environment
+
+    if outputRedirection.redirectsOutput {
+      let stdoutPipe = Pipe()
+      let stderrPipe = Pipe()
+      stdoutPipe.fileHandleForReading.readabilityHandler = { (fh : FileHandle) -> Void in
+        let contents = fh.readDataToEndOfFile()
+        self.outputRedirection.outputClosures?.stdoutClosure([UInt8](contents))
+        if case .success(let data) = self.stdout.result {
+          self.stdout.result = .success(data + contents)
+        }
+      }
+      stderrPipe.fileHandleForReading.readabilityHandler = { (fh : FileHandle) -> Void in
+        let contents = fh.readDataToEndOfFile()
+        self.outputRedirection.outputClosures?.stderrClosure([UInt8](contents))
+        if case .success(let data) = self.stderr.result {
+          self.stderr.result = .success(data + contents)
+        }
+      }
+      _process?.standardOutput = stdoutPipe
+      _process?.standardError = stderrPipe
+    }
+
+    try _process?.run()
+#else
+    // Initialize the spawn attributes.
+#if canImport(Darwin) || os(Android)
+    var attributes: posix_spawnattr_t? = nil
+#else
+    var attributes = posix_spawnattr_t()
+#endif
+    posix_spawnattr_init(&attributes)
+    defer { posix_spawnattr_destroy(&attributes) }
+
+    // Unmask all signals.
+    var noSignals = sigset_t()
+    sigemptyset(&noSignals)
+    posix_spawnattr_setsigmask(&attributes, &noSignals)
+
+    // Reset all signals to default behavior.
+#if os(macOS)
+    var mostSignals = sigset_t()
+    sigfillset(&mostSignals)
+    sigdelset(&mostSignals, SIGKILL)
+    sigdelset(&mostSignals, SIGSTOP)
+    posix_spawnattr_setsigdefault(&attributes, &mostSignals)
+#else
+    // On Linux, this can only be used to reset signals that are legal to
+    // modify, so we have to take care about the set we use.
+    var mostSignals = sigset_t()
+    sigemptyset(&mostSignals)
+    for i in 1 ..< SIGSYS {
+      if i == SIGKILL || i == SIGSTOP {
+        continue
+      }
+      sigaddset(&mostSignals, i)
+    }
+    posix_spawnattr_setsigdefault(&attributes, &mostSignals)
+#endif
+
+    // Set the attribute flags.
+    var flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
+    if startNewProcessGroup {
+      // Establish a separate process group.
+      flags |= POSIX_SPAWN_SETPGROUP
+      posix_spawnattr_setpgroup(&attributes, 0)
+    }
+
+    posix_spawnattr_setflags(&attributes, Int16(flags))
+
+    // Setup the file actions.
+#if canImport(Darwin) || os(Android)
+    var fileActions: posix_spawn_file_actions_t? = nil
+#else
+    var fileActions = posix_spawn_file_actions_t()
+#endif
+    posix_spawn_file_actions_init(&fileActions)
+    defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+    if let workingDirectory = workingDirectory?.pathString {
+#if os(macOS)
+      // The only way to set a workingDirectory is using an availability-gated initializer, so we don't need
+      // to handle the case where the posix_spawn_file_actions_addchdir_np method is unavailable. This check only
+      // exists here to make the compiler happy.
+      if #available(macOS 10.15, *) {
+        posix_spawn_file_actions_addchdir_np(&fileActions, workingDirectory)
+      }
+#elseif os(Linux)
+      guard SPM_posix_spawn_file_actions_addchdir_np_supported() else {
+        throw Process.Error.workingDirectoryNotSupported
+      }
+
+      SPM_posix_spawn_file_actions_addchdir_np(&fileActions, workingDirectory)
+#else
+      throw Process.Error.workingDirectoryNotSupported
+#endif
+    }
+
+    // Workaround for https://sourceware.org/git/gitweb.cgi?p=glibc.git;h=89e435f3559c53084498e9baad22172b64429362
+    // Change allowing for newer version of glibc
+    guard let devNull = strdup("/dev/null") else {
+      throw SystemError.posix_spawn(0, arguments)
+    }
+    defer { free(devNull) }
+    // Open /dev/null as stdin.
+    posix_spawn_file_actions_addopen(&fileActions, 0, devNull, O_RDONLY, 0)
+
+    posix_spawn_file_actions_adddup2(&fileActions, one, 1)
+    posix_spawn_file_actions_adddup2(&fileActions, two, 2)
+    posix_spawn_file_actions_adddup2(&fileActions, three, 3)
+    posix_spawn_file_actions_adddup2(&fileActions, four, 4)
+    func closeIfOK(_ f: Int32) {
+      if ![0, 1, 2, 3, 4].contains(f) {
+        posix_spawn_file_actions_addclose(&fileActions, f)
+      }
+    }
+    ([one, two, three, four] + closing).forEach(closeIfOK)
+
+
+    let argv = CStringArray(arguments)
+    let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
+    let rv = posix_spawnp(&processID, argv.cArray[0]!, &fileActions, &attributes, argv.cArray, env.cArray)
+
+    guard rv == 0 else {
+      throw SystemError.posix_spawn(rv, arguments)
+    }
+#endif // POSIX implementation
+  }
 }
