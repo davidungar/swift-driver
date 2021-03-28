@@ -93,6 +93,12 @@ public final class MultiJobExecutor {
       private let compileServerQueue: DispatchQueue = DispatchQueue(label: "com.apple.swift-driver.compile-servers", qos: .userInteractive)
       private var freeCompileServers: [CompilerServer]
 
+      init(_ incrementalCompilerState: IncrementalCompilationState?,
+           numParallelJobs: Int) {
+        guard let incrementalCompilerState = incrementalCompilerState else {fatalError()}
+        self.freeCompileServers = Array(repeating: incrementalCompilerState.compileServerJob, count: numParallelJobs)
+      }
+
       mutating fileprivate func acquireCompileServer() -> CompilerServer {
         compileServerQueue.sync {
           if freeCompileServers.isEmpty {
@@ -121,7 +127,8 @@ public final class MultiJobExecutor {
       forceResponseFiles: Bool,
       recordedInputModificationDates: [TypedVirtualPath: Date],
       diagnosticsEngine: DiagnosticsEngine,
-      processType: ProcessProtocol.Type = Process.self
+      processType: ProcessProtocol.Type = Process.self,
+      numParallelJobs: Int
     ) {
       (
         jobs: self.jobs,
@@ -142,6 +149,7 @@ public final class MultiJobExecutor {
       self.recordedInputModificationDates = recordedInputModificationDates
       self.diagnosticsEngine = diagnosticsEngine
       self.processType = processType
+      self.compilerServers = CompilerServerPool(incrementalCompilationState, numParallelJobs: numParallelJobs)
     }
 
     private static func fillInJobsAndProducers(_ workload: DriverExecutorWorkload
@@ -337,8 +345,8 @@ public final class MultiJobExecutor {
       forceResponseFiles: forceResponseFiles,
       recordedInputModificationDates: recordedInputModificationDates,
       diagnosticsEngine: diagnosticsEngine,
-      processType: processType
-    )
+      processType: processType,
+      numParallelJobs: numParallelJobs)
   }
 }
 
@@ -715,6 +723,11 @@ fileprivate struct CompilerServer {
 
       try context.processSet?.add(process)
 
+      [readStdout, readStderr].forEach {
+        let fr = fcntl($0,  F_SETFL, O_NONBLOCK)
+        assert(fr == 0)
+      }
+
       self.sourceFileNameFD = sourceFileNameFD
       self.completionFD = completionFD
       self.outputFD = readStdout
@@ -735,22 +748,27 @@ fileprivate struct CompilerServer {
     }
   }
 
-  func readCompletion() {
-    var buf = Array<Int8>(repeating: 0, count: 10000)
+  mutating func readCompletion() {
     let rres = withUnsafeMutablePointer(to: &buf) { read(completionFD, $0, 1) }
     assert(rres == 1)
   }
 
   mutating func readOutputs() -> ([UInt8], [UInt8]) {
-    let r = withUnsafeMutablePointer(to: &buf) {
-      read(outputFD, $0, buf.count)
+    func readOutput(fd: Int32) -> [UInt8] {
+      var contents = [UInt8]()
+      let count = buf.count
+      while true {
+        let r = withUnsafeMutablePointer(to: &buf) { read(fd, $0, count) }
+        if r == 0 {break}
+        if r == -1 {
+          if errno == EAGAIN {break}
+          fatalError()
+        }
+        contents.append(contentsOf: buf.prefix(r))
+      }
+      return contents
     }
-    assert(r > 0 && r < buf.count)
-    let stdout = Array(buf.prefix(r))
-    let r2 = withUnsafeMutablePointer(to: &buf) {read(stderrOutputFD, $0, buf.count)}
-    assert(r2 > 0 && r2 < buf.count)
-    let stderr = Array(buf.prefix(r2))
-    return (stdout, stderr)
+    return (readOutput(fd: outputFD), readOutput(fd: stderrOutputFD))
   }
 }
 
@@ -759,8 +777,3 @@ private func makeAPipe() -> (r: Int32, w: Int32) {
   let p = Pipe()
   return (p.fileHandleForReading.fileDescriptor, p.fileHandleForWriting.fileDescriptor)
 }
-
-//    do {
-//      let rr = fcntl(r, F_SETFL, O_NONBLOCK)
-//      assert(rr == 0)
-//    }
