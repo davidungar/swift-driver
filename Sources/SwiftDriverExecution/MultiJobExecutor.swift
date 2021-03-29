@@ -691,6 +691,7 @@ class ExecuteJobRule: LLBuildRule {
                                                                forceResponseFiles: context.forceResponseFiles)
 
     var server = context.compilerServers.acquireCompileServer()
+    let oldCounts = (server.outputs.0.count, server.outputs.1.count)
 
     server.writeSourceFileName(job)
     // Inform the delegate.
@@ -703,15 +704,16 @@ class ExecuteJobRule: LLBuildRule {
     }
 
     server.readCompletion()
-    let (output, stderrOutput) = server.readOutputs()
+    let (currentOutput, currentStdout) = (server.outputs.0.suffix(from: oldCounts.0),
+                                          server.outputs.1.suffix(from: oldCounts.1))
 
     context.compilerServers.releaseCompileServer(server)
 
     let processResult = ProcessResult(arguments: arguments,
                                       environment: env,
                                       exitStatusCode: 0,
-                                      output: .success(output),
-                                      stderrOutput: .success(stderrOutput))
+                                      output: .success(Array(currentOutput)),
+                                      stderrOutput: .success(Array(currentStdout)))
 
 
     return (Result.success(processResult), false, pid)
@@ -732,6 +734,7 @@ private extension TSCBasic.Diagnostic.Message {
 
 fileprivate struct CompilerServer {
   let pid: Pid
+  let process: TSCBasic.Process
   let sourceFileNameP, completionP, stdoutP, stderrP: Pipe
 
   var buf = Array<UInt8>(repeating: 0, count: 100000)
@@ -751,6 +754,7 @@ fileprivate struct CompilerServer {
       let completionP = Pipe()
 
       let process = Process(arguments: arguments, environment: env, outputRedirection: .none)
+      self.process = process
       try process.launchCompileServer(
         stdoutP: stdoutP,
         stderrP: stderrP,
@@ -783,8 +787,6 @@ fileprivate struct CompilerServer {
       print("cannot launch compile server", error.localizedDescription)
       fatalError("launchCompileServer")
     }
-
-
   }
 
   func writeSourceFileName(_ job: Job) {
@@ -808,24 +810,8 @@ fileprivate struct CompilerServer {
     }
   }
 
-  mutating func readOutputs() -> ([UInt8], [UInt8]) {
-    func readOutput(fd: Int32) -> [UInt8] {
-      var contents = [UInt8]()
-      let count = buf.count
-      //dmuxxx print("HEREd READING OUT", fd, to: &stderrStream); stderrStream.flush()
-      while true {
-        let r = withUnsafeMutablePointer(to: &buf) { read(fd, $0, count) }
-        if r == 0 {break}
-        if r == -1 {
-          if errno == EAGAIN {break}
-          fatalError()
-        }
-        contents.append(contentsOf: buf.prefix(r))
-      }
-      //dmuxxx print("HEREd Done READING OUT '\(contents)'", fd, to: &stderrStream); stderrStream.flush()
-      return contents
-    }
-    return (readOutput(fd: stdoutFD), readOutput(fd: stderrFD))
+  var outputs: ([UInt8], [UInt8]) {
+    return try! (process.stdout.result.get(), process.stderr.result.get())
   }
 }
 
@@ -862,33 +848,7 @@ extension TSCBasic.Process {
     }
 
 #if os(Windows)
-    _process = Foundation.Process()
-    _process?.arguments = Array(arguments.dropFirst()) // Avoid including the executable URL twice.
-    _process?.executableURL = executablePath.asURL
-    _process?.environment = environment
-
-    if outputRedirection.redirectsOutput {
-      let stdoutPipe = Pipe()
-      let stderrPipe = Pipe()
-      stdoutPipe.fileHandleForReading.readabilityHandler = { (fh : FileHandle) -> Void in
-        let contents = fh.readDataToEndOfFile()
-        self.outputRedirection.outputClosures?.stdoutClosure([UInt8](contents))
-        if case .success(let data) = self.stdout.result {
-          self.stdout.result = .success(data + contents)
-        }
-      }
-      stderrPipe.fileHandleForReading.readabilityHandler = { (fh : FileHandle) -> Void in
-        let contents = fh.readDataToEndOfFile()
-        self.outputRedirection.outputClosures?.stderrClosure([UInt8](contents))
-        if case .success(let data) = self.stderr.result {
-          self.stderr.result = .success(data + contents)
-        }
-      }
-      _process?.standardOutput = stdoutPipe
-      _process?.standardError = stderrPipe
-    }
-
-    try _process?.run()
+   fatalError()
 #else
     // Initialize the spawn attributes.
 #if canImport(Darwin) || os(Android)
@@ -973,33 +933,48 @@ extension TSCBasic.Process {
       if r != 0 {fatalError()}
     }
 
+
+    //dmuxxx print("HEREd launch", arguments.joined(separator: " "), to: &stderrStream); stderrStream.flush()
+
+
+
+    // Open the write end of the pipe.
+    posix_spawn_file_actions_adddup2(&fileActions, stdoutP.fileHandleForWriting.fileDescriptor, 1)
+
+    // Close the other ends of the pipe.
+    posix_spawn_file_actions_addclose(&fileActions, stdoutP.fileHandleForWriting.fileDescriptor)
+    posix_spawn_file_actions_addclose(&fileActions, stdoutP.fileHandleForReading.fileDescriptor)
+
+
+    // If no redirect was requested, open the pipe for stderr.
+    posix_spawn_file_actions_adddup2(&fileActions, stderrP.fileHandleForWriting.fileDescriptor, 2)
+
+    // Close the other ends of the pipe.
+    posix_spawn_file_actions_addclose(&fileActions, stderrP.fileHandleForReading.fileDescriptor)
+    posix_spawn_file_actions_addclose(&fileActions, stderrP.fileHandleForWriting.fileDescriptor)
+
+
     func closeIfOK(_ f: Int32) {
       if ![0, 1, 2, 3, 4].contains(f) {
         if posix_spawn_file_actions_addclose(&fileActions, f) != 0 {fatalError()}
       }
     }
     let fdsToCloseThere = [
-      stdoutP.fileHandleForReading,
-      stderrP.fileHandleForReading,
       sourceFileNameP.fileHandleForWriting,
       completionP.fileHandleForReading]
       .map {$0.fileDescriptor}
     fdsToCloseThere.forEach(closeIfOK)
 
     let fdsToDup = [
-      stdoutP.fileHandleForWriting,
-      stderrP.fileHandleForWriting,
-      sourceFileNameP.fileHandleForReading,
-      completionP.fileHandleForWriting]
-      .map {$0.fileDescriptor}
+      (sourceFileNameP.fileHandleForReading, Int32(3)),
+      (completionP.fileHandleForWriting, Int32(4))]
+      .map {($0.0.fileDescriptor, $0.1)}
 
-    fdsToDup.enumerated() .forEach { i, fd in
-      let r = posix_spawn_file_actions_adddup2(&fileActions,
-                                             false && i < 2 ? Int32(i + 1) : fd, //dmuxxx
-                                               Int32(i + 1))
+    fdsToDup .forEach { fdHere, fdThere in
+      let r = posix_spawn_file_actions_adddup2(&fileActions, fdHere, fdThere)
       if r != 0 {fatalError()}
     }
-    //dmuxxx print("HEREd launch", arguments.joined(separator: " "), to: &stderrStream); stderrStream.flush()
+
 
     let argv = CStringArray(arguments + ["-no-color-diagnostics"])
     let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
@@ -1008,7 +983,34 @@ extension TSCBasic.Process {
     guard rv == 0 else {
       throw SystemError.posix_spawn(rv, arguments)
     }
-   fdsToDup.forEach { close($0) }
+    let outputClosures = outputRedirection.outputClosures
+
+    // Close the write end of the output pipe.
+    guard close(stdoutP.fileHandleForWriting.fileDescriptor) == 0 else {fatalError()}
+
+    // Create a thread and start reading the output on it.
+    var thread = Thread { [weak self] in
+      if let readResult = self?.readOutput(onFD: stdoutP.fileHandleForReading.fileDescriptor,
+                                           outputClosure: outputClosures?.stdoutClosure) {
+            self?.stdout.result = readResult
+        }
+    }
+    thread.start()
+    self.stdout.thread = thread
+
+    // Only schedule a thread for stderr if no redirect was requested.
+    // Close the write end of the stderr pipe.
+    guard close(stderrP.fileHandleForWriting.fileDescriptor) == 0 else {fatalError()}
+
+    // Create a thread and start reading the stderr output on it.
+    thread = Thread { [weak self] in
+      if let readResult = self?.readOutput(onFD: stderrP.fileHandleForWriting.fileDescriptor, outputClosure: outputClosures?.stderrClosure) {
+        self?.stderr.result = readResult
+      }
+      thread.start()
+      self?.stderr.thread = thread
+    }
+    fdsToDup.forEach { close($0.0) }
 #endif // POSIX implementation
   }
 }
