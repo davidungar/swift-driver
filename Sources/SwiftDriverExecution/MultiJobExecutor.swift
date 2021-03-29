@@ -737,7 +737,7 @@ fileprivate struct CompilerServer {
   let process: TSCBasic.Process
   let sourceFileNameP, completionP, stdoutP, stderrP: Pipe
 
-  var buf = Array<UInt8>(repeating: 0, count: 100000)
+  //var buf = Array<UInt8>(repeating: 0, count: 100000)
 
   var sourceFileNameFD: Int32 { sourceFileNameP.fileHandleForWriting.fileDescriptor}
   var     completionFD: Int32 {     completionP.fileHandleForReading.fileDescriptor}
@@ -766,10 +766,6 @@ fileprivate struct CompilerServer {
 
       try processSet?.add(process)
 
-      [stdoutP, stderrP].forEach { p in
-//dmuxxx        let fr = fcntl(p.fileHandleForReading.fileDescriptor,  F_SETFL, O_NONBLOCK)
-//        assert(fr == 0)
-      }
       self.sourceFileNameP = sourceFileNameP
       self.completionP = completionP
       self.stdoutP = stdoutP
