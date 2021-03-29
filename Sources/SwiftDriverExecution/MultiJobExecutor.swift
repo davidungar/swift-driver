@@ -793,7 +793,7 @@ fileprivate struct CompilerServer {
   }
 
   mutating func readCompletion() {
-    var buf = Array<UInt8>(repeating: 0, count: 2)
+    var buf = Array<UInt8>(repeating: 0, count: 10)
     let rres = withUnsafeMutablePointer(to: &buf) { read(completionFD, $0, 1) }
     assert(rres == 1)
   }
@@ -989,7 +989,7 @@ extension TSCBasic.Process {
     }
 
 
-    let argv = CStringArray(arguments)
+    let argv = CStringArray(arguments + ["-no-color-diagnostics"])
     let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
     let rv = posix_spawnp(&processID, argv.cArray[0]!, &fileActions, &attributes, argv.cArray, env.cArray)
 
