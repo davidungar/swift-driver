@@ -951,7 +951,7 @@ extension TSCBasic.Process {
 
 
     func closeIfOK(_ f: Int32) {
-      if ![0, 1, 2, 3, 4].contains(f) {
+      if ![0, 1, 2, 3, 4, 5].contains(f) {
         if posix_spawn_file_actions_addclose(&fileActions, f) != 0 {fatalError()}
       }
     }
@@ -968,6 +968,10 @@ extension TSCBasic.Process {
 
     fdsToDup .forEach { fdHere, fdThere in
       let r = posix_spawn_file_actions_adddup2(&fileActions, fdHere, fdThere)
+      if r != 0 {fatalError()}
+    }
+    do {
+      let r = posix_spawn_file_actions_adddup2(&fileActions, 2, 5)
       if r != 0 {fatalError()}
     }
 
