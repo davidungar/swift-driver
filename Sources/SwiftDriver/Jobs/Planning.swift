@@ -876,7 +876,7 @@ extension Driver {
     showJobLifecycle: Bool,
     _ mode: BatchFormingMode
   ) -> BatchPartitions {
-    let numScheduledPartitions = mode == .oneInput ? 1 :
+    let numScheduledPartitions = mode == .allInputs ? 1 :
     numberOfBatchPartitions(
       compilerMode.batchModeInfo,
       numInputFiles: inputs.count)

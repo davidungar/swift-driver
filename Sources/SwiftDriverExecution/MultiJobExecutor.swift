@@ -1008,7 +1008,7 @@ extension TSCBasic.Process {
     guard rv == 0 else {
       throw SystemError.posix_spawn(rv, arguments)
     }
-    fdsToDup.forEach { close($0) }
+   fdsToDup.forEach { close($0) }
 #endif // POSIX implementation
   }
 }
