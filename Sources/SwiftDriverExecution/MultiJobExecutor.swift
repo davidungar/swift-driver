@@ -757,14 +757,14 @@ fileprivate struct CompilerServer {
         sourceFileNameP: sourceFileNameP,
         completionP: completionP)
 
-      print("HEREd launched", to: &stderrStream); stderrStream.flush() //dmuxxx
+      //dmuxxx print("HEREd launched", to: &stderrStream); stderrStream.flush() //dmuxxx
       self.pid = Pid(process.processID)
 
       try processSet?.add(process)
 
-      [stdoutP, stderrP].forEach {
-        let fr = fcntl($0.fileHandleForReading.fileDescriptor,  F_SETFL, O_NONBLOCK)
-        assert(fr == 0)
+      [stdoutP, stderrP].forEach { p in
+//dmuxxx        let fr = fcntl(p.fileHandleForReading.fileDescriptor,  F_SETFL, O_NONBLOCK)
+//        assert(fr == 0)
       }
       self.sourceFileNameP = sourceFileNameP
       self.completionP = completionP
@@ -795,16 +795,16 @@ fileprivate struct CompilerServer {
     if wrres != pri.count {
       abort()
     }
-    print("HEREd wrote name ", sourceFileNameFD, pri, to: &stderrStream); stderrStream.flush()
+    //dmuxxx print("HEREd wrote name ", sourceFileNameFD, pri, to: &stderrStream); stderrStream.flush()
   }
 
   mutating func readCompletion() {
     var buf = Array<UInt8>(repeating: 0, count: 1000)
-    print("HEREd about to read completion ", completionFD, to: &stderrStream); stderrStream.flush()
+    //dmuxxx print("HEREd about to read completion ", completionFD, to: &stderrStream); stderrStream.flush()
     let rres = withUnsafeMutablePointer(to: &buf) { read(completionFD, $0, 1) }
-    print("HEREd read completion ", completionFD, to: &stderrStream); stderrStream.flush()
+    //dmuxxx print("HEREd read completion ", completionFD, to: &stderrStream); stderrStream.flush()
     if rres != 1 {
-      print("HEREd bad read", rres, errno, to: &stderrStream); stderrStream.flush()
+      //dmuxxx print("HEREd bad read", rres, errno, to: &stderrStream); stderrStream.flush()
     }
   }
 
@@ -812,7 +812,7 @@ fileprivate struct CompilerServer {
     func readOutput(fd: Int32) -> [UInt8] {
       var contents = [UInt8]()
       let count = buf.count
-      print("HEREd READING OUT", fd, to: &stderrStream); stderrStream.flush()
+      //dmuxxx print("HEREd READING OUT", fd, to: &stderrStream); stderrStream.flush()
       while true {
         let r = withUnsafeMutablePointer(to: &buf) { read(fd, $0, count) }
         if r == 0 {break}
@@ -822,7 +822,7 @@ fileprivate struct CompilerServer {
         }
         contents.append(contentsOf: buf.prefix(r))
       }
-      print("HEREd Done READING OUT '\(contents)'", fd, to: &stderrStream); stderrStream.flush()
+      //dmuxxx print("HEREd Done READING OUT '\(contents)'", fd, to: &stderrStream); stderrStream.flush()
       return contents
     }
     return (readOutput(fd: stdoutFD), readOutput(fd: stderrFD))
@@ -995,11 +995,11 @@ extension TSCBasic.Process {
 
     fdsToDup.enumerated() .forEach { i, fd in
       let r = posix_spawn_file_actions_adddup2(&fileActions,
-                                               i < 2 ? Int32(i + 1) : fd, //dmuxxx
+                                             false && i < 2 ? Int32(i + 1) : fd, //dmuxxx
                                                Int32(i + 1))
       if r != 0 {fatalError()}
     }
-    print("HEREd launch", arguments.joined(separator: " "), to: &stderrStream); stderrStream.flush()
+    //dmuxxx print("HEREd launch", arguments.joined(separator: " "), to: &stderrStream); stderrStream.flush()
 
     let argv = CStringArray(arguments + ["-no-color-diagnostics"])
     let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
