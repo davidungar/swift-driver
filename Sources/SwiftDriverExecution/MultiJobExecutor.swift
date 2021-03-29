@@ -681,6 +681,8 @@ class ExecuteJobRule: LLBuildRule {
     }
   }
 
+  static var nextPhoneyBaloneyPid: Int32 = -1
+
   private func executeCompileJob(env: [String: String]) -> (result: Result<ProcessResult, Error>, pendingFinish: Bool, pid: Pid) {
     let context = self.context
     let resolver = context.argsResolver
@@ -692,8 +694,11 @@ class ExecuteJobRule: LLBuildRule {
 
     server.writeSourceFileName(job)
     // Inform the delegate.
-    let pid = Pid(0)
+    var pid = Pid(0)
+    Self.nextPhoneyBaloneyPid -= 1
     context.delegateQueue.sync {
+      pid = Pid(Self.nextPhoneyBaloneyPid)
+      Self.nextPhoneyBaloneyPid -= 1
       context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
     }
 
@@ -752,7 +757,7 @@ fileprivate struct CompilerServer {
         sourceFileNameP: sourceFileNameP,
         completionP: completionP)
 
-      print("HERE launched", to: &stderrStream); stderrStream.flush()
+      //dmuxxx print("HERE launched", to: &stderrStream); stderrStream.flush()
       self.pid = Pid(process.processID)
 
       try processSet?.add(process)
@@ -982,7 +987,7 @@ extension TSCBasic.Process {
       .map {$0.fileDescriptor}
 
     fdsToDup.enumerated() .forEach { i, fd in
-      if i != 1 { // stderr
+      if true || i != 0 { // stdoutP //dmuxxx
         let r = posix_spawn_file_actions_adddup2(&fileActions, fd, Int32(i + 1))
         if r != 0 {fatalError()}
       }

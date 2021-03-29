@@ -107,7 +107,7 @@ final class ToolExecutionDelegate: JobExecutionDelegate {
       }
 
     case .parsableOutput:
-      let output = (try? result.utf8Output() + result.utf8stderrOutput()).flatMap { $0.isEmpty ? nil : $0 }
+      let output = (try? result.utf8Output() + result.utf8stderrOutput()).flatMap { $0.isEmpty ? nil : $0 } //dmuxxx??
       let message: ParsableMessage
 
       switch result.exitStatus {
