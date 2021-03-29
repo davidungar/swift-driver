@@ -226,7 +226,6 @@ extension IncrementalCompilationState.InitialStateComputer {
       return (skippedCompileGroups: [:],
               mandatoryJobsInOrder: mandatoryJobsInOrder)
     }
-    fatalError("unimp mandatory")
     moduleDependencyGraph.phase = .updatingAfterCompilation
 
 

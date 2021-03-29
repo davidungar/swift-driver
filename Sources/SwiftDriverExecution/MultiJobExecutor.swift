@@ -793,7 +793,7 @@ fileprivate struct CompilerServer {
   }
 
   mutating func readCompletion() {
-    var buf = Array<UInt8>(repeating: 0, count: 10)
+    var buf = Array<UInt8>(repeating: 0, count: 1000)
     let rres = withUnsafeMutablePointer(to: &buf) { read(completionFD, $0, 1) }
     assert(rres == 1)
   }
