@@ -43,6 +43,9 @@ public final class IncrementalCompilationState {
   /// Already batched, and in order of input files.
   public let mandatoryJobsInOrder: [Job]
 
+  /// Only non-nil in dynamic batch mode
+  public let compileServerJob: Job?
+
   /// Jobs to run *after* the last compile, for instance, link-editing.
   public let jobsAfterCompiles: [Job]
 
@@ -85,11 +88,14 @@ public final class IncrementalCompilationState {
       self.reporter = nil
     }
 
+    let isDynamicBatch = driver.compilerMode.isDynamicBatch
+
     let enablingOrDisabling = options.contains(.enableCrossModuleIncrementalBuild)
       ? "Enabling"
       : "Disabling"
+    let dynamicOrNot = isDynamicBatch ? "dynamic " : ""
     reporter?.report(
-      "\(enablingOrDisabling) incremental cross-module building")
+      "\(enablingOrDisabling) \(dynamicOrNot)incremental cross-module building")
 
 
     guard let outputFileMap = driver.outputFileMap else {
@@ -121,6 +127,7 @@ public final class IncrementalCompilationState {
         self.reporter,
         driver.inputFiles,
         driver.fileSystem,
+        isDynamicBatch: isDynamicBatch,
         showJobLifecycle: driver.showJobLifecycle,
         driver.diagnosticEngine)
         .compute(batchJobFormer: &driver)
@@ -128,8 +135,10 @@ public final class IncrementalCompilationState {
       return nil
     }
 
+
     self.skippedCompileGroups = initial.skippedCompileGroups
     self.mandatoryJobsInOrder = initial.mandatoryJobsInOrder
+    self.compileServerJob = initial.compileServerJob
     self.jobsAfterCompiles = jobsInPhases.afterCompiles
     self.moduleDependencyGraph = initial.graph
     self.buildStartTime = initial.buildStartTime
@@ -161,6 +170,10 @@ extension IncrementalCompilationState {
     /// All of the pre-compile or compilation job (groups) known to be required
     /// for the first wave to execute.
     let mandatoryJobsInOrder: [Job]
+
+    /// non-nil in dynamic batch mode
+    let compileServerJob: Job?
+
     /// The last time this compilation was started. Used to compare against e.g. input file mod dates.
     let buildStartTime: Date
     /// The last time this compilation finished. Used to compare against output file mod dates
@@ -197,7 +210,7 @@ extension Driver {
 fileprivate extension CompilerMode {
   var supportsIncrementalCompilation: Bool {
     switch self {
-    case .standardCompile, .immediate, .repl, .batchCompile: return true
+    case .standardCompile, .immediate, .repl, .batchCompile, .dynamicBatchCompile: return true
     case .singleCompile, .compilePCM: return false
     }
   }
@@ -284,6 +297,8 @@ extension IncrementalCompilationState {
     return TransitivelyInvalidatedInputSet(skippedCompileGroups.keys)
   }
 
+  private var isDynamicBatch: Bool {compileServerJob != nil}
+
   /// Find the jobs that now must be run that were not originally known to be needed.
   private func getJobs(
     for invalidatedInputs: Set<TypedVirtualPath>
@@ -302,7 +317,10 @@ extension IncrementalCompilationState {
         return []
       }
     }
-    return try driver.formBatchedJobs(unbatched, showJobLifecycle: driver.showJobLifecycle)
+    return isDynamicBatch
+      ? unbatched
+      : try driver.formBatchedJobs(unbatched,
+                                   showJobLifecycle: driver.showJobLifecycle)
   }
 }
 // MARK: - Scheduling post-compile jobs

@@ -1301,6 +1301,10 @@ extension Driver {
 
     // For batch mode, collect information
     if wantBatchMode {
+      let dynamicBatching = parsedOptions.contains(.experimentalDynamicBatching)
+      if dynamicBatching {
+        return .dynamicBatchCompile
+      }
       let batchSeed = parseIntOption(&parsedOptions, option: .driverBatchSeed, diagnosticsEngine: diagnosticsEngine)
       let batchCount = parseIntOption(&parsedOptions, option: .driverBatchCount, diagnosticsEngine: diagnosticsEngine)
       let batchSizeLimit = parseIntOption(&parsedOptions, option: .driverBatchSizeLimit, diagnosticsEngine: diagnosticsEngine)
@@ -1540,9 +1544,11 @@ extension Driver {
       return 0
     }
 
-    if case .batchCompile = compilerMode {
+    switch compilerMode {
+    case .batchCompile, .dynamicBatchCompile:
       diagnosticsEngine.emit(.warning_cannot_multithread_batch_mode)
       return 0
+    default: break
     }
 
     return numThreads

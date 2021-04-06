@@ -25,6 +25,7 @@ extension IncrementalCompilationState {
     @_spi(Testing) public let reporter: IncrementalCompilationState.Reporter?
     @_spi(Testing) public let inputFiles: [TypedVirtualPath]
     @_spi(Testing) public let fileSystem: FileSystem
+    @_spi(Testing) public let isDynamicBatch: Bool
     @_spi(Testing) public let showJobLifecycle: Bool
     @_spi(Testing) public let sourceFiles: SourceFiles
     @_spi(Testing) public let diagnosticEngine: DiagnosticsEngine
@@ -50,6 +51,7 @@ extension IncrementalCompilationState {
       _ reporter: IncrementalCompilationState.Reporter?,
       _ inputFiles: [TypedVirtualPath],
       _ fileSystem: FileSystem,
+      isDynamicBatch: Bool,
       showJobLifecycle: Bool,
       _ diagnosticEngine: DiagnosticsEngine
     ) {
@@ -60,6 +62,7 @@ extension IncrementalCompilationState {
       self.reporter = reporter
       self.inputFiles = inputFiles
       self.fileSystem = fileSystem
+      self.isDynamicBatch = isDynamicBatch
       self.showJobLifecycle = showJobLifecycle
       assert(outputFileMap.onlySourceFilesHaveSwiftDeps())
       self.sourceFiles = SourceFiles(inputFiles: inputFiles,
@@ -102,9 +105,16 @@ extension IncrementalCompilationState {
           inputsInvalidatedByExternals,
           batchJobFormer: &batchJobFormer)
 
+      let compileServerJob = !isDynamicBatch
+        ? nil
+        : try batchJobFormer.formBatchedJobs(
+          jobsInPhases.compileGroups.map {$0.compileJob},
+          showJobLifecycle: showJobLifecycle)[0]
+
       return InitialState(graph: graph,
                           skippedCompileGroups: skippedCompileGroups,
                           mandatoryJobsInOrder: mandatoryJobsInOrder,
+                          compileServerJob: compileServerJob,
                           buildStartTime: buildStartTime,
                           buildEndTime: buildEndTime)
     }
@@ -213,15 +223,10 @@ extension IncrementalCompilationState.InitialStateComputer {
         compileGroups[input]
       }
 
-      let mandatoryJobsInOrder = try
-        jobsInPhases.beforeCompiles +
-        batchJobFormer.formBatchedJobs(
-          mandatoryCompileGroupsInOrder.flatMap {$0.allJobs()},
-          showJobLifecycle: showJobLifecycle)
-
       moduleDependencyGraph.phase = .buildingAfterEachCompilation
-      return (skippedCompileGroups: [:],
-              mandatoryJobsInOrder: mandatoryJobsInOrder)
+      let mandatoryJobsInOrder = try computeMandatoryJobsInOrder(
+        mandatoryCompileGroupsInOrder, &batchJobFormer)
+      return ( skippedCompileGroups: [:], mandatoryJobsInOrder: mandatoryJobsInOrder)
     }
     moduleDependencyGraph.phase = .updatingAfterCompilation
 
@@ -239,15 +244,23 @@ extension IncrementalCompilationState.InitialStateComputer {
         ? nil
         : compileGroups[input]
     }
+    let mandatoryJobsInOrder = try computeMandatoryJobsInOrder(
+      mandatoryCompileGroupsInOrder, &batchJobFormer)
+    return (skippedCompileGroups: skippedCompileGroups, mandatoryJobsInOrder: mandatoryJobsInOrder)
+  }
 
-    let mandatoryJobsInOrder = try
-      jobsInPhases.beforeCompiles +
-      batchJobFormer.formBatchedJobs(
-        mandatoryCompileGroupsInOrder.flatMap {$0.allJobs()},
-        showJobLifecycle: showJobLifecycle)
+  private func computeMandatoryJobsInOrder(
+    _ mandatoryCompileGroupsInOrder: [CompileJobGroup],
+    _ batchJobFormer: inout Driver
+  ) throws -> [Job] {
+    let mandatoryCompileGroupJobs = mandatoryCompileGroupsInOrder.flatMap {$0.allJobs()}
 
-    return (skippedCompileGroups: skippedCompileGroups,
-            mandatoryJobsInOrder: mandatoryJobsInOrder)
+    let mandatoryCompileJobs = try isDynamicBatch
+      ? mandatoryCompileGroupJobs
+      : batchJobFormer.formBatchedJobs(mandatoryCompileGroupJobs,
+                                       showJobLifecycle: showJobLifecycle)
+
+    return jobsInPhases.beforeCompiles + mandatoryCompileJobs
   }
 
   /// Figure out which compilation inputs are *not* mandatory

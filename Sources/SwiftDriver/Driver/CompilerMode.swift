@@ -18,6 +18,9 @@
   /// multiple -primary-file options per invocation.
   case batchCompile(BatchModeInfo)
 
+  /// Still experimental; dynamically hand out tasks to compile servers.
+  case dynamicBatchCompile
+
   /// A compilation using a single frontend invocation without -primary-file.
   case singleCompile
 
@@ -46,7 +49,7 @@ extension CompilerMode {
     case .immediate, .repl, .singleCompile, .compilePCM:
       return false
 
-    case .standardCompile, .batchCompile:
+    case .standardCompile, .batchCompile, .dynamicBatchCompile:
       return true
     }
   }
@@ -54,7 +57,7 @@ extension CompilerMode {
   /// Whether this compilation mode compiles the whole target in one job.
   public var isSingleCompilation: Bool {
     switch self {
-    case .immediate, .repl, .standardCompile, .batchCompile:
+    case .immediate, .repl, .standardCompile, .batchCompile, .dynamicBatchCompile:
       return false
 
     case .singleCompile, .compilePCM:
@@ -66,7 +69,7 @@ extension CompilerMode {
     switch self {
       case .immediate, .repl, .compilePCM:
         return false
-      case .batchCompile, .standardCompile, .singleCompile:
+    case .batchCompile, .dynamicBatchCompile, .standardCompile, .singleCompile:
         return true
     }
   }
@@ -88,10 +91,17 @@ extension CompilerMode {
   // headers.
   public var supportsBridgingPCH: Bool {
     switch self {
-    case .batchCompile, .singleCompile, .standardCompile, .compilePCM:
+    case .batchCompile, .dynamicBatchCompile, .singleCompile, .standardCompile, .compilePCM:
       return true
     case .immediate, .repl:
       return false
+    }
+  }
+
+  public var isDynamicBatch: Bool {
+    switch self {
+    case .dynamicBatchCompile: return true
+    default: return false
     }
   }
 }
@@ -103,6 +113,8 @@ extension CompilerMode: CustomStringConvertible {
         return "standard compilation"
       case .batchCompile:
         return "batch compilation"
+      case .dynamicBatchCompile:
+        return "dynamic batch compilation"
       case .singleCompile:
         return "whole module optimization"
       case .repl:

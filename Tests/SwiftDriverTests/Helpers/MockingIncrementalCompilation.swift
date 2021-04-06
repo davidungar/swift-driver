@@ -131,6 +131,7 @@ extension IncrementalCompilationState.InitialStateComputer {
               nil,
               [],
               fileSystem,
+              isDynamicBatch: false,
               showJobLifecycle: false,
               diagnosticsEngine)
   }

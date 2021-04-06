@@ -94,6 +94,9 @@ public struct Job: Codable, Equatable, Hashable {
   /// The kind of job.
   public var kind: Kind
 
+  public let phoneyPid: Int
+  private static var nextPhoneyPid: Int = -1000
+
   /// A map from a primary input to all of its corresponding outputs
   private var compileInputOutputMap: [TypedVirtualPath : [TypedVirtualPath]]
 
@@ -123,6 +126,8 @@ public struct Job: Codable, Equatable, Hashable {
     self.extraEnvironment = extraEnvironment
     self.requiresInPlaceExecution = requiresInPlaceExecution
     self.supportsResponseFiles = supportsResponseFiles
+    self.phoneyPid = Self.nextPhoneyPid
+    Self.nextPhoneyPid -= 1 //dmuxxx thread safe/
   }
 }
 

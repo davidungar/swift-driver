@@ -632,7 +632,7 @@ extension Driver {
       jobs.append(try interpretJob(inputs: inputFiles))
       return (jobs, nil)
 
-    case .standardCompile, .batchCompile, .singleCompile:
+    case .standardCompile, .batchCompile, .dynamicBatchCompile, .singleCompile:
       return try planStandardCompile()
 
     case .compilePCM:
@@ -663,7 +663,8 @@ extension Driver {
   ///
   /// So, in order to avoid making jobs and rebatching, the code would have to just get outputs for each
   /// compilation. But `compileJob` intermixes the output computation with other stuff.
-  mutating func formBatchedJobs(_ jobs: [Job], showJobLifecycle: Bool) throws -> [Job] {
+  mutating func formBatchedJobs(_ jobs: [Job],
+                                showJobLifecycle: Bool) throws -> [Job] {
     guard compilerMode.isBatchCompile else {
       // Don't even go through the logic so as to not print out confusing
       // "batched foobar" messages.
@@ -846,7 +847,7 @@ extension Driver {
         return (num + div - 1) / div
     }
 
-    let defaultSizeLimit = 25
+    let defaultSizeLimit = 1000000
     let sizeLimit = info.sizeLimit ?? defaultSizeLimit
 
     let numTasks = numParallelJobs ?? 1
@@ -867,9 +868,11 @@ extension Driver {
     inputs: [TypedVirtualPath],
     showJobLifecycle: Bool
   ) -> BatchPartitions {
-    let numScheduledPartitions = numberOfBatchPartitions(
-      compilerMode.batchModeInfo,
-      numInputFiles: inputs.count)
+    let numScheduledPartitions = compilerMode.isDynamicBatch
+      ? 1
+      : numberOfBatchPartitions(
+        compilerMode.batchModeInfo,
+        numInputFiles: inputs.count)
 
     if showJobLifecycle && inputs.count > 0 {
       diagnosticEngine
