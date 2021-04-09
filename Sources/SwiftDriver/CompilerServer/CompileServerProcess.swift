@@ -149,7 +149,7 @@ extension CompileServerProcess {
                      _ fileActions: inout posix_spawn_file_actions_t?,
                      _ processID: inout TSCBasic.Process.ProcessID
   ) throws {
-    let argv = CStringArray(arguments + ["-no-color-diagnostics"])
+    let argv = CStringArray(arguments + ["-experimental-dynamic-batching", "-no-color-diagnostics"])
     let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
     let rv = posix_spawnp(&processID, argv.cArray[0]!, &fileActions, &attributes, argv.cArray, env.cArray)
 
