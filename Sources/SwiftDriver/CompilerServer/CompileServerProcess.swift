@@ -24,11 +24,11 @@ public final class CompileServerProcess: ObjectIdentifierProtocol {
 
   /// The output bytes of the process. Available only if the process was
   /// asked to redirect its output and no stdout output closure was set.
-  public var stdout = [UInt8]()
+  private var stdout = [UInt8]()
 
   /// The output bytes of the process. Available only if the process was
   /// asked to redirect its output and no stderr output closure was set.
-  public var stderr = [UInt8]()
+  private var stderr = [UInt8]()
 
   /// The process id of the spawned process, available after the process is launched.
    public private(set) var processID = Process.ProcessID()
@@ -41,6 +41,9 @@ public final class CompileServerProcess: ObjectIdentifierProtocol {
 
   var stdoutThread: TSCBasic.Thread?
   var stderrThread: TSCBasic.Thread?
+
+  let stdoutLock = Lock()
+  let stderrLock = Lock()
 
 
 
@@ -82,8 +85,8 @@ extension CompileServerProcess {
 
     closeParentProcessFileDescriptors()
 
-    stdoutThread = startOutputReader(stdoutPipe) { [weak self] in self?.stdout += $0}
-    stdoutThread = startOutputReader(stderrPipe) { [weak self] in self?.stderr += $0}
+    stdoutThread = startOutputReader(stdoutPipe) { [weak self] bytes in self?.stdoutLock.withLock {self?.stdout += bytes} }
+    stdoutThread = startOutputReader(stderrPipe) { [weak self] bytes in self?.stderrLock.withLock {self?.stderr += bytes} }
 
     #endif // POSIX implementation
   }
@@ -167,7 +170,6 @@ extension CompileServerProcess {
   private func startOutputReader(_ pipe: Pipe, _ emit: @escaping (ArraySlice<UInt8>) -> Void) -> TSCBasic.Thread {
     let fd = pipe.fileHandleForReading.fileDescriptor
     let thread = TSCBasic.Thread {
-      //xxx LOCK
       let N = 4096
       var buf = [UInt8](repeating: 0, count: N + 1)
       var error: Int32? = nil
@@ -191,5 +193,18 @@ extension CompileServerProcess {
     }
     thread.start()
     return thread
+  }
+
+  func getOutputs() ->  ([UInt8], [UInt8]) {
+    func get(_ lock: Lock, _ buf: inout [UInt8]) -> [UInt8] {
+      lock.withLock {
+        let r = buf
+        buf.removeAll()
+        return r
+      }
+    }
+    return (
+      get(stdoutLock, &stdout),
+      get(stderrLock, &stderr))
   }
 }

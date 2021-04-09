@@ -72,11 +72,7 @@ public struct CompileServer {
   }
 
   public func getOutputs() ->  ([UInt8], [UInt8]) {
-    //LOCK
-    let r = (process.stdout, process.stderr)
-    process.stdout.removeAll()
-    process.stderr.removeAll()
-    return r
+    process.getOutputs()
   }
   func terminate() {
     close(sourceFileNameFD)
