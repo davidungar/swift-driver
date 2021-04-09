@@ -526,6 +526,10 @@ extension IncrementalCompilationTests {
     try testIncremental(checkDiagnostics: false)
   }
 
+  func testDynamicBatching() throws {
+    try testIncremental(checkDiagnostics: false, dynamicBatching: true)
+  }
+
   func testDependencyDotFiles() throws {
     expectNoDotFiles()
     try tryInitial(extraArguments: ["-driver-emit-fine-grained-dependency-dot-file-after-every-import"])
@@ -613,14 +617,15 @@ extension IncrementalCompilationTests {
     abort()
   }
 
-  func testIncremental(checkDiagnostics: Bool) throws {
-    try tryInitial(checkDiagnostics: checkDiagnostics)
+  func testIncremental(checkDiagnostics: Bool, dynamicBatching: Bool = false) throws {
+    let extraArguments = dynamicBatching ? ["-experimental-dynamic-batching"] : []
+    try tryInitial(checkDiagnostics: checkDiagnostics, extraArguments: extraArguments)
     #if true // sometimes want to skip for debugging
-    tryNoChange(checkDiagnostics: checkDiagnostics)
-    tryTouchingOther(checkDiagnostics: checkDiagnostics)
-    tryTouchingBoth(checkDiagnostics: checkDiagnostics)
+    tryNoChange(checkDiagnostics: checkDiagnostics, extraArguments: extraArguments)
+    tryTouchingOther(checkDiagnostics: checkDiagnostics, extraArguments: extraArguments)
+    tryTouchingBoth(checkDiagnostics: checkDiagnostics, extraArguments: extraArguments)
     #endif
-    tryReplacingMain(checkDiagnostics: checkDiagnostics)
+    tryReplacingMain(checkDiagnostics: checkDiagnostics, extraArguments: extraArguments)
   }
 
   @discardableResult
