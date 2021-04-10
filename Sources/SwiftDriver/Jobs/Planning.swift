@@ -868,11 +868,9 @@ extension Driver {
     inputs: [TypedVirtualPath],
     showJobLifecycle: Bool
   ) -> BatchPartitions {
-    let numScheduledPartitions = compilerMode.isDynamicBatch
-      ? 1
-      : numberOfBatchPartitions(
-        compilerMode.batchModeInfo,
-        numInputFiles: inputs.count)
+    let numScheduledPartitions = numberOfBatchPartitions(
+      compilerMode.batchModeInfo,
+      numInputFiles: inputs.count)
 
     if showJobLifecycle && inputs.count > 0 {
       diagnosticEngine

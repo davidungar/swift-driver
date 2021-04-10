@@ -670,7 +670,7 @@ class ExecuteJobRule: LLBuildRule {
     context.delegateQueue.sync {
       context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
     }
-
+    print("HERE awaiting completion", job.primaryInputs[0], to: &stderrStream); stderrStream.flush()
     server.readCompletion()
     // MyLog.log(">")
 

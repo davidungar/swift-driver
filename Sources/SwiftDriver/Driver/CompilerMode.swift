@@ -79,7 +79,7 @@ extension CompilerMode {
     case let .batchCompile(info):
       return info
     default:
-      return nil
+      return BatchModeInfo(seed: nil, count: 1, sizeLimit: Int.max)
     }
   }
 
