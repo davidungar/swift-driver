@@ -132,7 +132,7 @@ extension CompileServerProcess {
     posix_spawn_file_actions_adddup2(&fileActions,         stdoutPipe.fileHandleForWriting.fileDescriptor, Int32(1))
     posix_spawn_file_actions_adddup2(&fileActions,         stderrPipe.fileHandleForWriting.fileDescriptor, Int32(2))
     posix_spawn_file_actions_adddup2(&fileActions, sourceFileNamePipe.fileHandleForReading.fileDescriptor, Int32(3))
-    posix_spawn_file_actions_adddup2(&fileActions,     completionPipe.fileHandleForReading.fileDescriptor, Int32(4))
+    posix_spawn_file_actions_adddup2(&fileActions,     completionPipe.fileHandleForWriting.fileDescriptor, Int32(4))
 
     [
       [stdoutPipe, stderrPipe, completionPipe].map {$0.fileHandleForReading},
