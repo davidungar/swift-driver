@@ -284,7 +284,7 @@ extension ModuleDependencyGraph {
   /// Process a possibly-fingerprinted external dependency by reading and integrating, if applicable.
   /// Return the nodes thus invalidated.
   /// But always integrate, in order to detect future changes.
-  /// This function does not to the transitive closure; that is left to the callers
+  /// This function does not do the transitive closure; that is left to the callers
   func collectNodesInvalidatedByProcessing(
     fingerprintedExternalDependency fed: FingerprintedExternalDependency,
     isPresentInTheGraph: Bool?)
