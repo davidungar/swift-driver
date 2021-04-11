@@ -1301,9 +1301,12 @@ extension Driver {
 
     // For batch mode, collect information
     if wantBatchMode {
-      let dynamicBatching = parsedOptions.contains(.experimentalDynamicBatching)
+      let dynamicBatching = parsedOptions.hasFlag(positive: .enableDynamicBatching,
+                                                  negative: .disableDynamicBatching,
+                                                  default: false)
+      let debugDyanamicBatching = parsedOptions.contains(.debugDynamicBatching)
       if dynamicBatching {
-        return .dynamicBatchCompile
+        return .dynamicBatchCompile(debugDynamicBatching: debugDyanamicBatching)
       }
       let batchSeed = parseIntOption(&parsedOptions, option: .driverBatchSeed, diagnosticsEngine: diagnosticsEngine)
       let batchCount = parseIntOption(&parsedOptions, option: .driverBatchCount, diagnosticsEngine: diagnosticsEngine)

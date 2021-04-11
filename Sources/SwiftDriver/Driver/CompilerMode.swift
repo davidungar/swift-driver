@@ -19,7 +19,7 @@
   case batchCompile(BatchModeInfo)
 
   /// Still experimental; dynamically hand out tasks to compile servers.
-  case dynamicBatchCompile
+  case dynamicBatchCompile(debugDynamicBatching: Bool)
 
   /// A compilation using a single frontend invocation without -primary-file.
   case singleCompile

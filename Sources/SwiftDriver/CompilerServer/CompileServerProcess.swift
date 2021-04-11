@@ -13,6 +13,7 @@
 import Foundation
 import TSCBasic
 import TSCLibc
+import SwiftOptions
 
 
 public final class CompileServerProcess: ObjectIdentifierProtocol {
@@ -150,7 +151,7 @@ extension CompileServerProcess {
                      _ processID: inout TSCBasic.Process.ProcessID
   ) throws {
     //xxx print("HERE", arguments, to: &stderrStream); stderrStream.flush()
-    let argv = CStringArray(arguments + ["-experimental-dynamic-batching", "-no-color-diagnostics"])
+    let argv = CStringArray(arguments + [ Option.enableDynamicBatching.spelling, "-no-color-diagnostics"])
     let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
     let rv = posix_spawnp(&processID, argv.cArray[0]!, &fileActions, &attributes, argv.cArray, env.cArray)
 

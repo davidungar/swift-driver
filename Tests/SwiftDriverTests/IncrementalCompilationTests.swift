@@ -618,7 +618,7 @@ extension IncrementalCompilationTests {
   }
 
   func testIncremental(checkDiagnostics: Bool, dynamicBatching: Bool = false) throws {
-    let extraArguments = dynamicBatching ? ["-experimental-dynamic-batching"] : []
+    let extraArguments = dynamicBatching ? [Option.enableDynamicBatching.spelling] : []
     try tryInitial(checkDiagnostics: checkDiagnostics, extraArguments: extraArguments)
     #if true // sometimes want to skip for debugging
     tryNoChange(checkDiagnostics: checkDiagnostics, extraArguments: extraArguments)
