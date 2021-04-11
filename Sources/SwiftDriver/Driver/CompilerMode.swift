@@ -104,6 +104,14 @@ extension CompilerMode {
     default: return false
     }
   }
+
+  public var debugDynamicBatching: Bool {
+    switch self {
+    case .dynamicBatchCompile(let debugDynamicBatching):
+      return debugDynamicBatching
+    default: return false
+    }
+  }
 }
 
 extension CompilerMode: CustomStringConvertible {

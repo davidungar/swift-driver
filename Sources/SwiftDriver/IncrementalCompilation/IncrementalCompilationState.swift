@@ -46,6 +46,8 @@ public final class IncrementalCompilationState {
   /// Only non-nil in dynamic batch mode
   public let compileServerJob: Job?
 
+  public let debugDynamicBatching: Bool
+
   /// Jobs to run *after* the last compile, for instance, link-editing.
   public let jobsAfterCompiles: [Job]
 
@@ -127,7 +129,7 @@ public final class IncrementalCompilationState {
         self.reporter,
         driver.inputFiles,
         driver.fileSystem,
-        isDynamicBatch: isDynamicBatch,
+        driver.compilerMode,
         showJobLifecycle: driver.showJobLifecycle,
         driver.diagnosticEngine)
         .compute(batchJobFormer: &driver)
@@ -139,6 +141,7 @@ public final class IncrementalCompilationState {
     self.skippedCompileGroups = initial.skippedCompileGroups
     self.mandatoryJobsInOrder = initial.mandatoryJobsInOrder
     self.compileServerJob = initial.compileServerJob
+    self.debugDynamicBatching = initial.debugDynamicBatching
     self.jobsAfterCompiles = jobsInPhases.afterCompiles
     self.moduleDependencyGraph = initial.graph
     self.buildStartTime = initial.buildStartTime
@@ -173,6 +176,8 @@ extension IncrementalCompilationState {
 
     /// non-nil in dynamic batch mode
     let compileServerJob: Job?
+
+    let debugDynamicBatching: Bool
 
     /// The last time this compilation was started. Used to compare against e.g. input file mod dates.
     let buildStartTime: Date

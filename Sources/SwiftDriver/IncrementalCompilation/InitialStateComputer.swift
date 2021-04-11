@@ -26,6 +26,7 @@ extension IncrementalCompilationState {
     @_spi(Testing) public let inputFiles: [TypedVirtualPath]
     @_spi(Testing) public let fileSystem: FileSystem
     @_spi(Testing) public let isDynamicBatch: Bool
+    @_spi(Testing) public let debugDynamicBatching: Bool
     @_spi(Testing) public let showJobLifecycle: Bool
     @_spi(Testing) public let sourceFiles: SourceFiles
     @_spi(Testing) public let diagnosticEngine: DiagnosticsEngine
@@ -51,7 +52,8 @@ extension IncrementalCompilationState {
       _ reporter: IncrementalCompilationState.Reporter?,
       _ inputFiles: [TypedVirtualPath],
       _ fileSystem: FileSystem,
-      isDynamicBatch: Bool,
+      _ compilerMode: CompilerMode,
+      debugDynamicBatching: Bool,
       showJobLifecycle: Bool,
       _ diagnosticEngine: DiagnosticsEngine
     ) {
@@ -62,7 +64,8 @@ extension IncrementalCompilationState {
       self.reporter = reporter
       self.inputFiles = inputFiles
       self.fileSystem = fileSystem
-      self.isDynamicBatch = isDynamicBatch
+      self.isDynamicBatch = compilerMode.isDynamicBatch
+      self.debugDynamicBatching = compilerMode.debugDynamicBatching
       self.showJobLifecycle = showJobLifecycle
       assert(outputFileMap.onlySourceFilesHaveSwiftDeps())
       self.sourceFiles = SourceFiles(inputFiles: inputFiles,
@@ -115,6 +118,7 @@ extension IncrementalCompilationState {
                           skippedCompileGroups: skippedCompileGroups,
                           mandatoryJobsInOrder: mandatoryJobsInOrder,
                           compileServerJob: compileServerJob,
+                          debugDynamicBatching: debugDynamicBatching,
                           buildStartTime: buildStartTime,
                           buildEndTime: buildEndTime)
     }

@@ -17,16 +17,22 @@ public struct CompileServerPool {
   private let compileServerQueue: DispatchQueue = DispatchQueue(label: "com.apple.swift-driver.compile-servers", qos: .userInteractive)
   private var freeCompileServers: [CompileServer]
 
+  public let logger: Logger?
+
   public init?(_ incrementalCompilationState: IncrementalCompilationState?,
        numServers: Int,
        env: [String: String],
        argsResolver: ArgsResolver,
        forceResponseFiles: Bool
       ) {
-    guard let compileServerJob = incrementalCompilationState?.compileServerJob
+    guard let incrementalCompilationState = incrementalCompilationState,
+          let compileServerJob = incrementalCompilationState.compileServerJob
     else {
       return nil
     }
+    let debugDynamicBatching = incrementalCompilationState.debugDynamicBatching
+
+    self.logger = debugDynamicBatching ? Logger() : nil
 
     do {
       var newCompileServer: CompileServer {
