@@ -11,13 +11,16 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import TSCBasic
+
 
 /// Compiler servers
 public struct CompileServerPool {
   private let compileServerQueue: DispatchQueue = DispatchQueue(label: "com.apple.swift-driver.compile-servers", qos: .userInteractive)
   private var freeCompileServers: [CompileServer]
 
-  public let logger: Logger?
+  public let log: TSCBasic.OSLog?
+
 
   public init?(_ incrementalCompilationState: IncrementalCompilationState?,
        numServers: Int,
@@ -32,25 +35,21 @@ public struct CompileServerPool {
     }
     let debugDynamicBatching = incrementalCompilationState.debugDynamicBatching
 
-    self.logger = debugDynamicBatching ? Logger() : nil
+    self.log = debugDynamicBatching
+      ? TSCBasic.OSLog(subsystem: "com.apple.SwiftDriver", category: "dynamicBatchin")
+      : nil
 
-    do {
-      var newCompileServer: CompileServer {
-        CompileServer(env: env,
-                       job: compileServerJob,
-                       resolver: argsResolver,
-                       forceResponseFiles: forceResponseFiles)
-      }
-
-
-      self.freeCompileServers = (0 ..< numServers).reduce(into: {
-        var a = [CompileServer]()
-        a.reserveCapacity(numServers)
-        return a
-      }()) {
-        servers, _ in servers.append(newCompileServer)
-      }
+    var freeCompileServers = [CompileServer]()
+    freeCompileServers.reserveCapacity(numServers)
+    for i in 0..<numServers {
+      freeCompileServers[i] = CompileServer(env: env,
+                                            job: compileServerJob,
+                                            resolver: argsResolver,
+                                            forceResponseFiles: forceResponseFiles,
+                                            log: log)
     }
+    self.freeCompileServers = freeCompileServers
+
     assert( Set(freeCompileServers.map {$0.sourceFileNameFD}).count == freeCompileServers.count)
   }
 

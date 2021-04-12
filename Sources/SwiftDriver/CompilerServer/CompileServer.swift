@@ -16,6 +16,7 @@ import TSCBasic
 public struct CompileServer {
   let pid: Int
   let process: CompileServerProcess
+  public let log: TSCBasic.OSLog?
   var sourceFile: VirtualPath? = nil
 
   //var buf = Array<UInt8>(repeating: 0, count: 100000)
@@ -23,12 +24,13 @@ public struct CompileServer {
   var sourceFileNameFD: Int32 { process.sourceFileNamePipe.fileHandleForWriting.fileDescriptor}
   var     completionFD: Int32 { process    .completionPipe.fileHandleForReading.fileDescriptor}
 
-  init(env: [String: String], job: Job, resolver: ArgsResolver, forceResponseFiles: Bool) {
+  init(env: [String: String], job: Job, resolver: ArgsResolver, forceResponseFiles: Bool,
+       log: TSCBasic.OSLog?) {
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: forceResponseFiles)
-
-      let process = CompileServerProcess(arguments: arguments, environment: env)
+      self.log = log
+      let process = CompileServerProcess(arguments: arguments, environment: env, log: log)
       self.process = process
       try process.launch()
 

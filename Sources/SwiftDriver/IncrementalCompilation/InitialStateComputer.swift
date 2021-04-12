@@ -53,7 +53,6 @@ extension IncrementalCompilationState {
       _ inputFiles: [TypedVirtualPath],
       _ fileSystem: FileSystem,
       _ compilerMode: CompilerMode,
-      debugDynamicBatching: Bool,
       showJobLifecycle: Bool,
       _ diagnosticEngine: DiagnosticsEngine
     ) {

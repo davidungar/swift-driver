@@ -40,6 +40,12 @@
   let seed: Int?
   let count: Int?
   let sizeLimit: Int?
+
+  @_spi(Testing) public init(seed: Int?, count: Int?, sizeLimit: Int?) {
+    self.seed = seed
+    self.count = count
+    self.sizeLimit = sizeLimit
+  }
 }
 
 extension CompilerMode {
