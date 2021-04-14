@@ -23,7 +23,7 @@ public final class CompileServerProcess: ObjectIdentifierProtocol {
   /// The environment with which the process was launched.
   public let environment: [String: String]
 
-  let log: TSCBasic.OSLog?
+  let dynamicBatchingLog: TSCBasic.OSLog?
 
   /// The output bytes of the process. Available only if the process was
   /// asked to redirect its output and no stdout output closure was set.
@@ -56,11 +56,11 @@ public final class CompileServerProcess: ObjectIdentifierProtocol {
   public init(
     arguments: [String],
     environment: [String: String],
-    log: TSCBasic.OSLog?
+    dynamicBatchingLog: TSCBasic.OSLog?
   ) {
     self.arguments = arguments
     self.environment = environment
-    self.log = log
+    self.dynamicBatchingLog = dynamicBatchingLog
   }
 }
 
@@ -154,7 +154,7 @@ extension CompileServerProcess {
                      _ fileActions: inout posix_spawn_file_actions_t?,
                      _ processID: inout TSCBasic.Process.ProcessID
   ) throws {
-    log.map { os_log(log: $0, "arguments %s", arguments.joined(separator: ", "))}
+    dynamicBatchingLog.map { os_log(log: $0, "arguments %s", arguments.joined(separator: ", "))}
     let argv = CStringArray(arguments + [ Option.enableDynamicBatching.spelling, "-no-color-diagnostics"])
     let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
     let rv = posix_spawnp(&processID, argv.cArray[0]!, &fileActions, &attributes, argv.cArray, env.cArray)
