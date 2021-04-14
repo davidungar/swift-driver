@@ -663,16 +663,16 @@ class ExecuteJobRule: LLBuildRule {
                                                                forceResponseFiles: context.forceResponseFiles)
 
     var server = context.compileServerPool!.acquireCompileServer()
-    // MyLog.log("<")
+    server.dynamicBatchingLog.log("acquired server for \(job.primaryInputs[0].file.name)")
     server.writeSourceFileName(job)
     // Inform the delegate.
     let pid = job.phoneyPid
     context.delegateQueue.sync {
       context.executorDelegate.jobStarted(job: job, arguments: arguments, pid: pid)
-      server.dynamicBatchingLog.log("awaiting completion \(job.primaryInputs[0].file.name)")
+      server.dynamicBatchingLog.log("awaiting completion for \(job.primaryInputs[0].file.name)")
     }
     server.readCompletion()
-    // MyLog.log(">")
+    server.dynamicBatchingLog.log("read completion for \(job.primaryInputs[0].file.name)")
 
     let (currentOutput, currentStdout) = server.getOutputs()
 
@@ -698,18 +698,5 @@ private extension TSCBasic.Diagnostic.Message {
 
   static func error_command_signalled(kind: Job.Kind, signal: Int32) -> TSCBasic.Diagnostic.Message {
     .error("\(kind.rawValue) command failed due to signal \(signal) (use -v to see invocation)")
-  }
-}
-
-
-struct MyLog {
-  static var s = try! ThreadSafeOutputByteStream(LocalFileOutputByteStream(
-    AbsolutePath("/tmp/y"),
-    closeOnDeinit: false))
-
-  static func log(_ msgs: String...) {log(msgs)}
-  static func log(_ msgs: [String]) {
-    print(msgs.joined(separator: " "), to: &s)
-    s.flush()
   }
 }

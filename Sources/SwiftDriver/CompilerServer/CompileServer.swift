@@ -36,7 +36,7 @@ public struct CompileServer {
       self.process = process
       try process.launch()
 
-      //dmuxxx MyLog.log("launched") //dmuxxx
+      dynamicBatchingLog.log("launched")
       self.pid = Int(process.processID)
     }
     catch let error as SystemError {
@@ -62,16 +62,16 @@ public struct CompileServer {
     if wrres != sf.name.count {
       abort()
     }
-    //dmuxxx MyLog.log("wrote name ", sourceFileNameFD, pri)
+    dynamicBatchingLog.log("wrote name \(sourceFileNameFD), \(pris[0].file.name)")
   }
 
   public mutating func readCompletion() {
     var buf = Array<UInt8>(repeating: 0, count: 1000)
-    //dmuxxx MyLog.log("about to read completion of \(sourceFile?.basename ?? "???")", completionFD)
+    dynamicBatchingLog.log("about to read completion of \(sourceFile?.basename ?? "???"), \(completionFD)")
     let rres = withUnsafeMutablePointer(to: &buf) { read(completionFD, $0, 1) }
-    //dmuxxx MyLog.log("read completion of \(sourceFile?.basename ?? "???")", completionFD)
+    dynamicBatchingLog.log("read completion of \(sourceFile?.basename ?? "???"), \(completionFD)")
     if rres != 1 {
-      //dmuxxx MyLog.log("bad read of \(sourceFile?.basename ?? "???")", rres, errno, to: &stderrStream); stderrStream.flush()
+      dynamicBatchingLog.log("bad read of \(sourceFile?.basename ?? "???"), rres \(rres), errno \(errno)")
     }
   }
 
@@ -80,7 +80,7 @@ public struct CompileServer {
   }
   func terminate() {
     close(sourceFileNameFD)
-    // MyLog.log("*")
+    dynamicBatchingLog.log("terminating CompileServer")
   }
 }
 
