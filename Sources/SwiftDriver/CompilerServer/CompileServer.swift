@@ -16,7 +16,7 @@ import TSCBasic
 public struct CompileServer {
   let pid: Int
   let process: CompileServerProcess
-  public let dynamicBatchingLog: TSCBasic.OSLog?
+  public let dynamicBatchingLog: DynamicBatchingLog
   var sourceFile: VirtualPath? = nil
 
   //var buf = Array<UInt8>(repeating: 0, count: 100000)
@@ -25,7 +25,7 @@ public struct CompileServer {
   var     completionFD: Int32 { process    .completionPipe.fileHandleForReading.fileDescriptor}
 
   init(env: [String: String], job: Job, resolver: ArgsResolver, forceResponseFiles: Bool,
-       dynamicBatchingLog: TSCBasic.OSLog?) {
+       dynamicBatchingLog: DynamicBatchingLog) {
     do {
       let arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                  forceResponseFiles: forceResponseFiles)

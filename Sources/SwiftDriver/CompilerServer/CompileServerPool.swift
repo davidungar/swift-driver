@@ -19,7 +19,7 @@ public struct CompileServerPool {
   private let compileServerQueue: DispatchQueue = DispatchQueue(label: "com.apple.swift-driver.compile-servers", qos: .userInteractive)
   private var freeCompileServers: [CompileServer]
 
-  public let dynamicBatchingLog: TSCBasic.OSLog?
+  public let dynamicBatchingLog: DynamicBatchingLog
 
 
   public init?(_ incrementalCompilationState: IncrementalCompilationState?,
@@ -35,9 +35,7 @@ public struct CompileServerPool {
     }
     let debugDynamicBatching = incrementalCompilationState.debugDynamicBatching
 
-    self.dynamicBatchingLog = debugDynamicBatching
-      ? TSCBasic.OSLog(subsystem: "com.apple.SwiftDriver", category: "dynamicBatchin")
-      : nil
+    self.dynamicBatchingLog = DynamicBatchingLog(enable: debugDynamicBatching)
 
     var freeCompileServers = [CompileServer]()
     freeCompileServers.reserveCapacity(numServers)
