@@ -847,7 +847,7 @@ extension Driver {
         return (num + div - 1) / div
     }
 
-    let defaultSizeLimit = 1000000
+    let defaultSizeLimit = 25
     let sizeLimit = info.sizeLimit ?? defaultSizeLimit
 
     let numTasks = numParallelJobs ?? 1
