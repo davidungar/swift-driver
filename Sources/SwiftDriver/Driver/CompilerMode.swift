@@ -84,8 +84,10 @@ extension CompilerMode {
     switch self {
     case let .batchCompile(info):
       return info
-    default:
+    case .dynamicBatchCompile:
       return BatchModeInfo(seed: nil, count: 1, sizeLimit: Int.max)
+    default:
+      return nil
     }
   }
 
