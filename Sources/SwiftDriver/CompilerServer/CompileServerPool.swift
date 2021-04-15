@@ -39,13 +39,17 @@ public struct CompileServerPool {
 
     var freeCompileServers = [CompileServer]()
     freeCompileServers.reserveCapacity(numServers)
+    dynamicBatchingLog.log("Creating \(numServers) servers")
     for i in 0..<numServers {
-      freeCompileServers[i] = CompileServer(env: env,
-                                            job: compileServerJob,
-                                            resolver: argsResolver,
-                                            forceResponseFiles: forceResponseFiles,
-                                            dynamicBatchingLog: dynamicBatchingLog)
+      dynamicBatchingLog.log("Creating \(i)")
+      freeCompileServers.append(CompileServer(env: env,
+                                              job: compileServerJob,
+                                              resolver: argsResolver,
+                                              forceResponseFiles: forceResponseFiles,
+                                              dynamicBatchingLog: dynamicBatchingLog))
+      dynamicBatchingLog.log("Created \(i)")
     }
+    dynamicBatchingLog.log("Finished all servers")
     self.freeCompileServers = freeCompileServers
 
     assert( Set(freeCompileServers.map {$0.sourceFileNameFD}).count == freeCompileServers.count)

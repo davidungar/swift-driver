@@ -36,19 +36,22 @@ public struct CompileServer {
       self.process = process
       try process.launch()
 
-      dynamicBatchingLog.log("launched")
       self.pid = Int(process.processID)
-    }
+      dynamicBatchingLog.log("launched \(self.pid)")
+   }
     catch let error as SystemError {
       if case let .posix_spawn(rv, arguments)  = error {
-        print("SystemError.posix_spawn", rv, arguments)
+        print("SystemError.posix_spawn", rv, arguments, to: &stderrStream)
+        stderrStream.flush()
         fatalError("launchCompileServer")
       }
-      print("cannot launch compile server", error.localizedDescription)
+      print("cannot launch compile server", error.localizedDescription, to: &stderrStream)
+      stderrStream.flush()
       fatalError("launchCompileServer")
     }
     catch {
-      print("cannot launch compile server", error.localizedDescription)
+      print("cannot launch compile server", error.localizedDescription, to: &stderrStream)
+      stderrStream.flush()
       fatalError("launchCompileServer")
     }
   }
