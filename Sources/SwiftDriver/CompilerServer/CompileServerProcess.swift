@@ -113,11 +113,9 @@ extension CompileServerProcess {
     posix_spawnattr_setsigdefault(&attributes, &mostSignals)
 
     // Set the attribute flags.
-    var flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
-      // Establish a separate process group.
-    flags |= POSIX_SPAWN_SETPGROUP
-    posix_spawnattr_setpgroup(&attributes, 0)
+    let flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
 
+    // Same process group as the driver, for ease of control-C
     posix_spawnattr_setflags(&attributes, Int16(flags))
 
     return attributes
@@ -154,14 +152,18 @@ extension CompileServerProcess {
                      _ fileActions: inout posix_spawn_file_actions_t?,
                      _ processID: inout TSCBasic.Process.ProcessID
   ) throws {
-    dynamicBatchingLog.log("arguments \(arguments.joined(separator: ", "))")
-    let argv = CStringArray(arguments + [ Option.enableDynamicBatching.spelling, "-no-color-diagnostics"])
+    assert(!arguments.contains(Option.debugDynamicBatching.spelling))
+    let completedArguments = arguments +
+      [ Option.enableDynamicBatching.spelling, "-no-color-diagnostics"] +
+      (dynamicBatchingLog.isLogging ? [Option.debugDynamicBatching.spelling] : [])
+    let argv = CStringArray(completedArguments)
     let env = CStringArray(environment.map({ "\($0.0)=\($0.1)" }))
     let rv = posix_spawnp(&processID, argv.cArray[0]!, &fileActions, &attributes, argv.cArray, env.cArray)
 
     guard rv == 0 else {
       throw SystemError.posix_spawn(rv, arguments)
     }
+    dynamicBatchingLog.log("spawned \(processID)")
   }
 
   private func closeParentProcessFileDescriptors() {

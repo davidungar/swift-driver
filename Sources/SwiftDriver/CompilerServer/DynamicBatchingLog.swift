@@ -23,4 +23,6 @@ public struct DynamicBatchingLog {
   public func log(_ message: @autoclosure () -> String) {
     log.map {os_log(log: $0, "%s", message())}
   }
+
+  var isLogging: Bool { return log != nil }
 }
