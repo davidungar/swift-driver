@@ -151,14 +151,18 @@ extension IncrementalCompilationState.InitialStateComputer {
     guard graph.populateInputDependencySourceMap() else {
       return nil
     }
-    graph.dotFileWriter?.write(graph)
 
     // Any externals not already in graph must be additions which should trigger
     // recompilation. Thus, `ChangedOrAdded`.
     let nodesDirectlyInvalidatedByExternals = graph.collectNodesInvalidatedByChangedOrAddedExternals()
     // Wait till the last minute to do the transitive closure as an optimization.
-    let inputsInvalidatedByExternals = graph.collectInputsUsingInvalidated(
+    guard let inputsInvalidatedByExternals = graph.collectInputsUsingInvalidated(
       nodes: nodesDirectlyInvalidatedByExternals)
+    else {
+      return nil
+    }
+    graph.dotFileWriter?.write(graph)
+
     return (graph, inputsInvalidatedByExternals)
   }
 
