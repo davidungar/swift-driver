@@ -46,11 +46,11 @@ struct Context: CustomStringConvertible {
     "Incremental imports \(incrementalImports)"
   }
 
-  func failMessage(_ step: Step) -> String {
+  func failMessage(_ step: CompilationStep) -> String {
     "\(description), in step \(stepIndex), \(step.whatIsBuilt)"
   }
 
-  func fail(_ msg: String, _ step: Step) {
+  func fail(_ msg: String, _ step: CompilationStep) {
     XCTFail("\(msg) \(failMessage(step))")
   }
 }

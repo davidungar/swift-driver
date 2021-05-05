@@ -74,11 +74,11 @@ class AddFuncInImportedExtensionTest: XCTestCase {
       andWhenDisabled: [mainFile, structConstructor, classConstructor])
 
     let steps = [
-      Step(                    building: modules, .expecting(modules.allSourcesToCompile)),
-      Step(                    building: modules, .expecting(.none)),
-      Step(adding: "withFunc", building: modules, .expecting(whenAddOrRmFunc)),
-      Step(                    building: modules, .expecting(whenAddOrRmFunc)),
-      Step(adding: "withFunc", building: modules, .expecting(whenAddOrRmFunc)),
+      CompilationStep(                    building: modules, .expecting(modules.allSourcesToCompile)),
+      CompilationStep(                    building: modules, .expecting(.none)),
+      CompilationStep(adding: "withFunc", building: modules, .expecting(whenAddOrRmFunc)),
+      CompilationStep(                    building: modules, .expecting(whenAddOrRmFunc)),
+      CompilationStep(adding: "withFunc", building: modules, .expecting(whenAddOrRmFunc)),
     ]
 
     // Do the test

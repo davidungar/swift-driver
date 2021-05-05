@@ -52,11 +52,11 @@ class SpecificFuncAdditionInExtensionWithinModuleTest: XCTestCase {
                                                        andWhenDisabled: [])
 
     let steps = [
-      Step(                                   building: [mainModule], .expecting([mainModule].allSourcesToCompile, "general")),
-      Step(                                   building: [mainModule], .expecting(.none,                            "general")),
-      Step(adding: "specificFuncInExtension", building: [mainModule], .expecting(whenAddOrRmSpecificFunc,          "specific")),
-      Step(                                   building: [mainModule], .expecting(whenAddOrRmSpecificFunc,          "general")),
-      Step(adding: "specificFuncInExtension", building: [mainModule], .expecting(whenAddOrRmSpecificFunc,          "specific")),
+      CompilationStep(                                   building: [mainModule], .expecting([mainModule].allSourcesToCompile, "general")),
+      CompilationStep(                                   building: [mainModule], .expecting(.none,                            "general")),
+      CompilationStep(adding: "specificFuncInExtension", building: [mainModule], .expecting(whenAddOrRmSpecificFunc,          "specific")),
+      CompilationStep(                                   building: [mainModule], .expecting(whenAddOrRmSpecificFunc,          "general")),
+      CompilationStep(adding: "specificFuncInExtension", building: [mainModule], .expecting(whenAddOrRmSpecificFunc,          "specific")),
     ]
 
     try IncrementalTest.perform(steps)

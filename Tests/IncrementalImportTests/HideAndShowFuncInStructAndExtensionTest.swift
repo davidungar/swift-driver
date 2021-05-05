@@ -153,7 +153,7 @@ fileprivate extension Change {
 fileprivate extension Array where Element == Change {
   var addOns: [String] {map {$0.name} }
 
-  func expectedCompilations(_ prevStep: Step?) -> ExpectedCompilations {
+  func expectedCompilations(_ prevStep: CompilationStep?) -> ExpectedCompilations {
     guard let prevStep = prevStep else {
       return modules.allSourcesToCompile
     }
@@ -183,15 +183,15 @@ fileprivate extension Array where Element == Change {
     return ExpectedProcessResult(output: output)
   }
 
-  func step(prior: Step?) -> Step {
-    Step(adding: addOns,
+  func step(prior: CompilationStep?) -> CompilationStep {
+    CompilationStep(adding: addOns,
          building: modules,
          .expecting(expectedCompilations(prior), expectedOutput))
   }
 }
 // MARK: - All steps
 
-var steps: [Step] {
+var steps: [CompilationStep] {
   stepChanges.reduce(into: []) { steps, changes in
     steps.append(changes.step(prior: steps.last))
   }

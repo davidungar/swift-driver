@@ -27,7 +27,7 @@ class InputMapRecoveryTest: XCTestBase {
       [
         Step(building: modules, .expecting(modules.allSourcesToCompile)),
         Step(building: modules, .expecting(.none))],
-      ZapMapStep()
+      ZapMapStep(),
       Step(building: modules, .expecting(modules.allSourcesToCompile)),
       Step(building: modules, .expecting(.none))])
   }

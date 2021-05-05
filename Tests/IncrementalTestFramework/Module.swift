@@ -209,7 +209,7 @@ extension Module {
     return boilerPlateArgs + interestingArgs
   }
 
-  func run(step: Step, in context: Context) throws -> ProcessResult? {
+  func run(step: CompilationStep, in context: Context) throws -> ProcessResult? {
     let proc = Process(arguments: [context.executablePath(for: self).pathString])
     try proc.launch()
     return try proc.waitUntilExit()

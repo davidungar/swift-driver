@@ -22,7 +22,7 @@ import TestUtilities
 /// Eacn test is a series of `Step`s.
 public struct IncrementalTest {
   /// The `Step`s to run, in order.
-  let steps: [Step]
+  let steps: [CompilationStep]
 
   let context: Context
 
@@ -33,7 +33,7 @@ public struct IncrementalTest {
   ///   - file: Determines where any test failure messages will appear in Xcode
   ///   - line: Ditto
   public static func perform(
-    _ steps: [Step],
+    _ steps: [CompilationStep],
     verbose: Bool = false,
     file: StaticString = #file,
     line: UInt = #line
@@ -46,7 +46,7 @@ public struct IncrementalTest {
                   line: line)
     }
   }
-  private static func perform(steps: [Step],
+  private static func perform(steps: [CompilationStep],
                               incrementalImports: Context.IncrementalImports,
                               verbose: Bool,
                               file: StaticString,
@@ -68,7 +68,7 @@ public struct IncrementalTest {
     }
   }
 
-  private init(steps: [Step], context: Context) {
+  private init(steps: [CompilationStep], context: Context) {
     self.steps = steps
     self.context = context
   }
@@ -77,7 +77,7 @@ public struct IncrementalTest {
       if context.verbose {
         print("\(index)", terminator: " ")
       }
-      try step.perform(stepIndex: index, in: context)
+      try step.announcePerformAndCheck(stepIndex: index, in: context)
     }
     if context.verbose {
       print("")

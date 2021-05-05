@@ -23,7 +23,7 @@ public struct ExpectedProcessResult {
     self.expectedExitCode = exitCode
   }
 
-  func check(against actual: ProcessResult?, step: Step, in context: Context) throws {
+  func check(against actual: ProcessResult?, step: CompilationStep, in context: Context) throws {
     guard let actual = actual else {
       context.fail("No result", step)
       return

@@ -26,24 +26,24 @@ class TransitivityTest: XCTestCase {
   func testTransitiveTopLevelUses() throws {
     try IncrementalTest.perform([
       // Build a baseline
-      Step(adding: "transitive-baseline",
+      CompilationStep(adding: "transitive-baseline",
            building: [.C, .B, .A],
            .expecting([.C, .B, .A].allSourcesToCompile)),
       // Swap in a new default argument: B needs to rebuild `fromB` and
       // relink against fromC, but A doesn't import `C` so only non-incremental
       // imports rebuilds it.
-      Step(adding: "transitive-add-default",
+      CompilationStep(adding: "transitive-add-default",
            building: [.C, .B, .A],
            .expecting(.init(always: [.C, .B], andWhenDisabled: [.A]))),
       // Now change C back to the old baseline. We edit A in the process to
       // introduce a dependency on C, so it needs to rebuild.
-      Step(adding: "transitive-baseline", "transitive-add-use-in-A",
+      CompilationStep(adding: "transitive-baseline", "transitive-add-use-in-A",
            building: [.C, .B, .A],
            .expecting(.init(always: [.C, .B, .A]))),
       // Same as before - the addition of a default argument requires B rebuild,
       // but A doesn't use anything from C, so it doesn't rebuild unless
       // incremental imports are disabled.
-      Step(adding: "transitive-add-default", "transitive-add-use-in-A",
+      CompilationStep(adding: "transitive-add-default", "transitive-add-use-in-A",
            building: [.C, .B, .A],
            .expecting(.init(always: [.C, .B], andWhenDisabled: [.A]))),
     ])
@@ -52,26 +52,26 @@ class TransitivityTest: XCTestCase {
   func testTransitiveStructMember() throws {
     try IncrementalTest.perform([
       // Establish the baseline build
-      Step(adding: "transitive-baseline",
+      CompilationStep(adding: "transitive-baseline",
            building: [.C, .B, .A],
            .expecting(.init(always: [ .A, .B, .C ]))),
       // Add the def of a struct to C, which B imports and has a use of so
       // B rebuilds but A does not unless incremental imports are disabled.
-      Step(adding: "transitive-baseline", "transitive-struct-def-in-C",
+      CompilationStep(adding: "transitive-baseline", "transitive-struct-def-in-C",
            building: [.C, .B, .A],
            .expecting(.init(always: [ .B, .C ], andWhenDisabled: [ .A ]))),
       // Now add a use in B, make sure C doesn't rebuild.
-      Step(adding: "transitive-baseline", "transitive-struct-def-in-C", "transitive-struct-def-in-B",
+      CompilationStep(adding: "transitive-baseline", "transitive-struct-def-in-C", "transitive-struct-def-in-B",
            building: [.C, .B, .A],
            .expecting(.init(always: [ .B, ], andWhenDisabled: [ .A ]))),
       // Now add a use in A and make sure only A rebuilds.
-      Step(adding: "transitive-baseline", "transitive-struct-def-in-C", "transitive-struct-def-in-B", "transitive-struct-def-in-A",
+      CompilationStep(adding: "transitive-baseline", "transitive-struct-def-in-C", "transitive-struct-def-in-B", "transitive-struct-def-in-A",
            building: [.C, .B, .A],
            .expecting(.init(always: [ .A ]))),
       // Finally, add a member to a struct in C, which influences the layout of
       // the struct in B, which influences the layout of the struct in A.
       // Everything rebuilds!
-      Step(adding: "transitive-baseline", "transitive-struct-add-member-in-C", "transitive-struct-def-in-B", "transitive-struct-def-in-A",
+      CompilationStep(adding: "transitive-baseline", "transitive-struct-add-member-in-C", "transitive-struct-def-in-B", "transitive-struct-def-in-A",
            building: [.C, .B, .A],
            .expecting(.init(always: [ .A, .B, .C ]))),
     ])

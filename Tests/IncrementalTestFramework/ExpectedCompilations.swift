@@ -45,7 +45,7 @@ public struct ExpectedCompilations {
   ///   - against: The actual compiled sources to check against.
   ///   - step: The `Step` that changed the source, ran the compiler, and needs to check the results.
   ///   - in: The context of this test.
-  func check(against actuals: [Source], step: Step, in context: Context) {
+  func check(against actuals: [Source], step: CompilationStep, in context: Context) {
     let expectedSet = Set(expected(when: context.incrementalImports))
     let actualsSet = Set(actuals)
 

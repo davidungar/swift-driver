@@ -62,11 +62,11 @@ class RenameMemberOfImportedStructTest: XCTestCase {
                                             andWhenDisabled: [other])
 
     let steps = [
-      Step(adding: ["original"], building: modules, .expecting(modules.allSourcesToCompile)),
-      Step(adding: ["original"], building: modules, .expecting(.none)),
-      Step(adding: ["renamed"],  building: modules, .expecting(whenRenaming)),
-      Step(adding: ["original"], building: modules, .expecting(whenRenaming)),
-      Step(adding: ["renamed"],  building: modules, .expecting(whenRenaming)),
+      CompilationStep(adding: ["original"], building: modules, .expecting(modules.allSourcesToCompile)),
+      CompilationStep(adding: ["original"], building: modules, .expecting(.none)),
+      CompilationStep(adding: ["renamed"],  building: modules, .expecting(whenRenaming)),
+      CompilationStep(adding: ["original"], building: modules, .expecting(whenRenaming)),
+      CompilationStep(adding: ["renamed"],  building: modules, .expecting(whenRenaming)),
     ]
     try IncrementalTest.perform(steps)
   }

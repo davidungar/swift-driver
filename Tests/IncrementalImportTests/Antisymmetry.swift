@@ -39,13 +39,13 @@ class AntisymmetryTest: XCTestCase {
   func testAntisymmetricTopLevelDefs() throws {
     try IncrementalTest.perform([
       // The baseline step is special, we want everything to get built first.
-      Step(adding: defAdditions,
+      CompilationStep(adding: defAdditions,
            building: [ .B, .A ],
            .expecting(.init(always: [ .main, .B ])))
     ] + defAdditions.dropFirst().indices.map { idx in
       // Make sure the addition of defs without users only causes cascading
       // rebuilds when incremental imports are disabled.
-      Step(adding: Array(defAdditions[0..<idx]),
+      CompilationStep(adding: Array(defAdditions[0..<idx]),
            building: [ .B, .A ],
            .expecting(.init(always: [ .B ], andWhenDisabled: [ .main ])))
     })
@@ -54,12 +54,12 @@ class AntisymmetryTest: XCTestCase {
   func testAntisymmetricTopLevelUses() throws {
     try IncrementalTest.perform([
       // The baseline step is special, we want everything to get built first.
-      Step(adding: defAdditions,
+      CompilationStep(adding: defAdditions,
            building: [ .B, .A ],
            .expecting(.init(always: [ .main, .B ])))
     ] + useAdditions.indices.dropFirst().map { idx in
       // Make sure the addition of uses causes only users to recompile.
-      Step(adding: defAdditions + Array(useAdditions[0..<idx]),
+      CompilationStep(adding: defAdditions + Array(useAdditions[0..<idx]),
            building: [ .B, .A ],
            .expecting(.init(always: [ .main ])))
     })

@@ -16,12 +16,20 @@ import TSCBasic
 import SwiftOptions
 import TestUtilities
 
+public protocol PerformableStep {
+  func perform(in: Context) throws
+}
+
+extension PerformableStep {
+
+}
+
 /// Each test  consists of a sequence of `Step`s.
 /// Each `Step` does three things:
 /// 1. Update all of the source files to reflect the edits simulated by the `addOns`.
 /// 2. Incrementally rebuild the modules.
 /// 3. Check what was actually recompiled against what was expected to be recompiled.
-public struct Step {
+public struct CompilationStep {
   /// The `AddOn`s to be applied to the sources.
   public let addOns: [AddOn]
   /// The `Modules` to be rebuild
@@ -73,16 +81,25 @@ public struct Step {
   public func contains(addOn name: String) -> Bool {
     addOns.map {$0.name} .contains(name)
   }
+}
 
-  /// Perform this step. Fails an `XCTest` assertion if what is recompiled is not as expected, or if
-  /// running an executable does not produce an expected result.
+extension PerformableStep {
+  /// Announce, perform, and check this step. Fail an `XCTest` assertion on failure.
   /// - Parameters:
   ///    - stepIndex: The index of this step in the test, from zero. Used for error messages, etc.
-  func perform(stepIndex: Int, in context: Context) throws {
+  func announcePerformAndCheck(stepIndex: Int, in context: Context) throws {
     let stepContext = context.with(stepIndex: stepIndex, file: file, line: line)
     if stepContext.verbose {
       print("\n*** performing step \(stepIndex): \(whatIsBuilt), \(stepContext) ***\n")
     }
+    try perform(in: stepContext)
+  }
+}
+
+extension CompilationStep {
+  /// Perform this step. Fails an `XCTest` assertion if what is recompiled is not as expected, or if
+  /// running an executable does not produce an expected result.
+  func perform(in stepContext: Context) throws {
     let compiledSources = try modules.flatMap {
       try $0.compile(addOns: addOns, in: stepContext)
     }
