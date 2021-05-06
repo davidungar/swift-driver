@@ -332,6 +332,8 @@ extension ModuleDependencyGraph {
       return DirectlyInvalidatedNodeSet()
     }
 
+    info.reporter?.report("Invalidating uses of external dependency", fed.externalDependency.path)
+
     // If there was an error integrating the external dependency, or if it was not an incremental one,
     // return anything that uses that dependency.
     return invalidatedNodesFromIncrementalExternal ?? collectUntracedNodesUsing(fed)
