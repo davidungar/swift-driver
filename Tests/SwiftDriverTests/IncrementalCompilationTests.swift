@@ -33,9 +33,12 @@ final class IncrementalCompilationTests: XCTestCase {
     "main": "let foo = 1",
     "other": "let bar = foo"
   ]
+  func inputPath(basename: String) -> AbsolutePath {
+    tempDir.appending(component: basename + ".swift")
+  }
   var inputPathsAndContents: [(AbsolutePath, String)] {
     baseNamesAndContents.map {
-      (tempDir.appending(component: $0.key + ".swift"), $0.value)
+      (inputPath(basename: $0.key), $0.value)
     }
   }
   var derivedDataPath: AbsolutePath {
@@ -79,10 +82,7 @@ final class IncrementalCompilationTests: XCTestCase {
                                derivedData: derivedDataPath,
                                to: OFM)
     for (base, contents) in baseNamesAndContents {
-      let filePath = tempDir.appending(component: "\(base).swift")
-      try! localFileSystem.writeFileContents(filePath) {
-        $0 <<< contents
-      }
+      write(contents, to: base)
     }
   }
 
@@ -255,20 +255,20 @@ extension IncrementalCompilationTests {
 
   func testIncremental(checkDiagnostics: Bool) throws {
     try tryInitial(checkDiagnostics: checkDiagnostics)
-    #if true // sometimes want to skip for debugging
+#if true // sometimes want to skip for debugging
     tryNoChange(checkDiagnostics: checkDiagnostics)
     tryTouchingOther(checkDiagnostics: checkDiagnostics)
     tryTouchingBoth(checkDiagnostics: checkDiagnostics)
-    #endif
+#endif
     tryReplacingMain(checkDiagnostics: checkDiagnostics)
   }
 
   // FIXME: Expect failure in Linux in CI just as testIncrementalDiagnostics
   func testAlwaysRebuildDependents() throws {
-    #if !os(Linux)
+#if !os(Linux)
     try tryInitial(checkDiagnostics: true)
     tryTouchingMainAlwaysRebuildDependents(checkDiagnostics: true)
-    #endif
+#endif
   }
 
 
@@ -279,6 +279,29 @@ extension IncrementalCompilationTests {
     (1...10).forEach { n in
       tryNoChange(checkDiagnostics: true)
     }
+  }
+
+  func testAddingInput() throws {
+#if !os(Linux)
+    try tryInitial(checkDiagnostics: true)
+    let anotherFile = "another"
+    let anotherName = "nameInAnother"
+    write("func \(anotherName)() {}", to: anotherFile)
+    let anothersPath = inputPath(basename: anotherFile)
+    OutputFileMapCreator.write(module: module,
+                               inputPaths: inputPathsAndContents.map {$0.0} + [anothersPath],
+                               derivedData: derivedDataPath,
+                               to: OFM)
+    try tryAfterAddition(ofBasename: anotherFile, definingTopLevel: anotherName)
+    try tryAfterAfterAddition(ofBasename: anotherFile)
+#endif
+  }
+
+  func testRenamingInput() throws {
+
+  }
+  func testSwappingInouts() throws {
+
   }
 }
 
@@ -467,6 +490,71 @@ extension IncrementalCompilationTests {
       ],
       whenAutolinking: autolinkLifecycleExpectations)
   }
+
+  private func tryAfterAddition(
+    ofBasename another: String,
+    definingTopLevel topLevelName: String
+  ) throws {
+    let anothersPath = inputPath(basename: another)
+    try doABuild(
+      "after addition of \(another)",
+      checkDiagnostics: true,
+      extraArguments: [anothersPath.pathString],
+      expectingRemarks: [
+        "Incremental compilation: Read dependency graph",
+        "Incremental compilation: Enabling incremental cross-module building",
+        "Incremental compilation: May skip current input:  {compile: main.o <= main.swift}",
+        "Incremental compilation: May skip current input:  {compile: other.o <= other.swift}",
+        "Incremental compilation: Scheduling new  {compile: \(another).o <= \(another).swift}",
+        "Incremental compilation: Has malformed dependency source; will queue  {compile: \(another).o <= \(another).swift}",
+        "Incremental compilation: Missing an output; will queue  {compile: \(another).o <= \(another).swift}",
+        "Incremental compilation: Queuing (initial):  {compile: \(another).o <= \(another).swift}",
+        "Incremental compilation: not scheduling dependents of \(another).swift: no entry in build record or dependency graph",
+        "Incremental compilation: Skipping input:  {compile: main.o <= main.swift}",
+        "Incremental compilation: Skipping input:  {compile: other.o <= other.swift}",
+        "Found 1 batchable job",
+        "Forming into 1 batch",
+        "Adding {compile: \(another).swift} to batch 0",
+        "Forming batch job from 1 constituents: \(another).swift",
+        "Starting Compiling \(another).swift",
+        "Finished Compiling \(another).swift",
+        "Incremental compilation: New definition: interface of source file \(another).swiftdeps in \(another).swiftdeps",
+        "Incremental compilation: New definition: implementation of source file \(another).swiftdeps in \(another).swiftdeps",
+        "Incremental compilation: New definition: interface of top-level name '\(topLevelName)' in \(another).swiftdeps",
+        "Incremental compilation: New definition: implementation of top-level name '\(topLevelName)' in \(another).swiftdeps",
+        "Incremental compilation: Scheduling all post-compile jobs because something was compiled",
+        "Starting Linking theModule",
+        "Finished Linking theModule",
+        "Skipped Compiling main.swift",
+        "Skipped Compiling other.swift",
+      ],
+      whenAutolinking: autolinkLifecycleExpectations)
+  }
+
+  private func tryAfterAfterAddition(
+    ofBasename another: String
+  ) throws {
+    let anothersPath = inputPath(basename: another)
+    try doABuild(
+      "after after addition of \(another)",
+      checkDiagnostics: true,
+      extraArguments: [anothersPath.pathString],
+      expectingRemarks: [
+        "Incremental compilation: Read dependency graph",
+        "Incremental compilation: Enabling incremental cross-module building",
+        "Incremental compilation: May skip current input:  {compile: main.o <= main.swift}",
+        "Incremental compilation: May skip current input:  {compile: other.o <= other.swift}",
+        "Incremental compilation: May skip current input:  {compile: \(another).o <= \(another).swift}",
+        "Incremental compilation: Skipping input:  {compile: main.o <= main.swift}",
+        "Incremental compilation: Skipping input:  {compile: other.o <= other.swift}",
+        "Incremental compilation: Skipping input:  {compile: \(another).o <= \(another).swift}",
+        "Incremental compilation: Skipping job: Linking theModule; oldest output is current",
+        "Skipped Compiling \(another).swift",
+        "Skipped Compiling main.swift",
+        "Skipped Compiling other.swift",
+      ],
+      whenAutolinking: autolinkLifecycleExpectations)
+  }
 }
 
 // MARK: - Incremental test perturbation helpers
@@ -477,14 +565,26 @@ extension IncrementalCompilationTests {
     try! localFileSystem.writeFileContents(path) { $0 <<< contents }
   }
 
+  private func removeInput(_ name: String) {
+    print("*** removing \(name) ***", to: &stderrStream); stderrStream.flush()
+    try! localFileSystem.removeFileTree(inputPath(basename: name))
+  }
+
   private func replace(contentsOf name: String, with replacement: String ) {
     print("*** replacing \(name) ***", to: &stderrStream); stderrStream.flush()
-    let path = try! XCTUnwrap(inputPathsAndContents.filter {$0.0.pathString.contains("/" + name + ".swift")}.first).0
+    let path = inputPath(basename: name)
     let previousContents = try! localFileSystem.readFileContents(path).cString
     try! localFileSystem.writeFileContents(path) { $0 <<< replacement }
     let newContents = try! localFileSystem.readFileContents(path).cString
     XCTAssert(previousContents != newContents, "\(path.pathString) unchanged after write")
     XCTAssert(replacement == newContents, "\(path.pathString) failed to write")
+  }
+
+  private func write(_ contents: String, to basename: String) {
+    print("*** writing \(contents) to \(basename)")
+    try! localFileSystem.writeFileContents(inputPath(basename: basename)) {
+      $0 <<< contents
+    }
   }
 }
 

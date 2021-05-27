@@ -193,10 +193,8 @@ extension IncrementalCompilationState.FirstWaveComputer {
   }
 
   private func sortByCommandLineOrder(_ inputs: Set<TypedVirtualPath>) -> [TypedVirtualPath] {
-    let indices = Dictionary(uniqueKeysWithValues: inputs.enumerated()
-                              .map {offset, element in (element, offset)})
-    return inputs.sorted {indices[$0]! < indices[$1]!}
-  }
+    inputFiles.filter (inputs.contains)
+   }
 
   /// Encapsulates information about an input the driver has determined has
   /// changed in a way that requires an incremental rebuild.

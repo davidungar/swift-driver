@@ -40,6 +40,7 @@ class CrossModuleIncrementalBuildTests: XCTestCase {
     }.joined(separator: "\n").appending("\n}"))
   }
 
+  /// Simulate effect of renaming the swiftdeps file from run to run.
   func testChangingOutputFileMap() throws {
     try withTemporaryDirectory { path in
       try localFileSystem.changeCurrentWorkingDirectory(to: path)
