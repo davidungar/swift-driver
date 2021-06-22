@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 /// A collection that associates keys with one or more values.
-@_spi(Testing) public struct Multidictionary<Key: Hashable, Value: Hashable>: Collection, Equatable {
+public struct Multidictionary<Key: Hashable, Value: Hashable>: Collection, Equatable {
   private var dictionary: Dictionary<Key, Set<Value>> = [:]
   
   public typealias Element = (Key, Set<Value>)

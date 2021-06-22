@@ -19,7 +19,7 @@ import TSCBasic
   // optimizes the reverse lookup, and includes path interning via `DependencySource`.
   // Once created, it does not change.
   
-  public typealias BiMap = BidirectionalMap<TypedVirtualPath, DependencySource>
+  public typealias BiMap = BidirectionalView<TypedVirtualPath, DependencySource>
   @_spi(Testing) public let biMap: BiMap
 
   /// Based on entries in the `OutputFileMap`, create the bidirectional map to map each source file
@@ -31,31 +31,30 @@ import TSCBasic
     let diagnosticEngine = info.diagnosticEngine
 
     assert(outputFileMap.onlySourceFilesHaveSwiftDeps())
-    var hadError = false
-    self.biMap = info.inputFiles.reduce(into: BiMap()) { biMap, input in
-      guard input.type == .swift else {return}
-      guard let dependencySource = outputFileMap.getDependencySource(for: input)
-       else {
-         // The legacy driver fails silently here.
-         diagnosticEngine.emit(
-           .remarkDisabled("\(input.file.basename) has no swiftDeps file")
-         )
-         hadError = true
-         // Don't stop at the first problem.
-         return
-       }
-       if let sameSourceForInput = biMap.updateValue(dependencySource, forKey: input) {
-         diagnosticEngine.emit(
-           .remarkDisabled(
-             "\(dependencySource) and \(sameSourceForInput) have the same input file in the output file map: \(input)")
-         )
-         hadError = true
-       }
-     }
-     if hadError {
-       return nil
-     }
-   }
+    let swiftInputFiles = info.inputFiles.lazy.filter {$0.type == .swift}
+    let biMapOrFailure = BiMap.constructOrFail(swiftInputFiles) {
+        input in
+        outputFileMap.getDependencySource(for: input)
+    }
+    switch biMapOrFailure {
+    case .success(let biMap):
+      self.biMap = biMap
+    case let .failure(missingValues, nonuniqueValues):
+      assert(!missingValues.isEmpty || !nonuniqueValues.isEmpty)
+      for inputName in (missingValues.map {$0.file.basename}.sorted()) {
+        // The legacy driver fails silently here.
+        diagnosticEngine.emit(
+          .remarkDisabled("\(inputName) has no swiftDeps file")
+        )
+      }
+      for (dependencySource, inputs) in nonuniqueValues.sorted(by: {$0.0 < $1.0})  {
+        diagnosticEngine.emit(
+          .remarkDisabled(
+            "\(inputs.map {$0.file.name}.sorted().joined(separator: ",")) have the same swiftdeps file in the ouput file map: \(dependencySource.file.name)"))
+      }
+            return nil
+    }
+  }
 }
 
 // MARK: - Accessing

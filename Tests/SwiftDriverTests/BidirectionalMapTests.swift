@@ -13,46 +13,46 @@
 import XCTest
 import SwiftDriver
 
-class BidirectionalMapTests: XCTestCase {
+class BidirectionalViewTests: XCTestCase {
+  func testBiDiView() {
+    struct Fixture {
+      let forwardMap: [Int: String]
+      let expectation: BidirectionalView<Int, String>.ConstructionResult
+      let missingValues: [Int]
+      let nonuniqueValues: Multidictionary<String, Int>
 
-  func testBiDiMap() {
-    func test(_ biMapToTest: BidirectionalMap<Int, String>) {
-      zip(biMapToTest.map{$0}.sorted {$0.0 < $1.0}, testContents).forEach {
-        XCTAssertEqual($0.0, $1.0)
-        XCTAssertEqual($0.1, $1.1)
+      init(_ forwardMap: [Int: String],
+           _ expectation: BidirectionalView<Int, String>.ConstructionResult,
+           _ missingValues: [Int],
+           _ nonuniqueValues: Multidictionary<String, Int>) {
+        self.forwardMap = forwardMap
+        self.expectation = expectation
+        self.missingValues = missingValues
+        self.nonuniqueValues = nonuniqueValues
       }
-      for (i, s) in testContents.map({$0}) {
-        XCTAssertEqual(biMapToTest[i], s)
-        XCTAssertEqual(biMapToTest[s], i)
-        XCTAssertTrue(biMapToTest.contains(key: i))
-        XCTAssertTrue(biMapToTest.contains(key: s))
-        XCTAssertFalse(biMapToTest.contains(key: -1))
-        XCTAssertFalse(biMapToTest.contains(key: "gazorp"))
+
+      func test() {
+        let r = BidirectionalView.constructOrFail(forwardMap.keys) {k in forwardMap[k]}
+        switch r {
+        case let .success(biView):
+          for (k, v) in forwardMap {
+            XCTAssert(missingValues.isEmpty && nonuniqueValues.isEmpty)
+            XCTAssertEqual(k, biView[v])
+            XCTAssertEqual(v, biView[k])
+          }
+        case let .failure(missingValues, nonuniqueValues):
+          XCTAssert(!missingValues.isEmpty || !nonuniqueValues.isEmpty)
+          XCTAssert(missingValues == self.missingValues)
+          XCTAssert(nonuniqueValues == self.nonuniqueValues)
+        }
       }
-    }
-    
-    var biMap = BidirectionalMap<Int, String>()
-    let testContents = (0..<3).map {($0, String($0))}
-    for (i, s) in testContents {
-      XCTAssertNil(biMap.updateValue(s, forKey: i))
-    }
-    test(biMap)
-  }
 
-  func testDirectionality() {
-    var biMap = BidirectionalMap<Int, String>()
-    XCTAssertNil(biMap.updateValue("Hello", forKey: 1))
-    XCTAssertEqual(biMap["Hello"], 1)
-    XCTAssertEqual(biMap[1], "Hello")
-    XCTAssertNil(biMap.updateValue("World", forKey: 2))
-    XCTAssertEqual(biMap["World"], 2)
-    XCTAssertEqual(biMap[2], "World")
+      static let testCases: [Self] = [
+        Self([1: "one", 2: "two", 3: "three"], .success)
+        Self[1: "one", ]
+      ]
+    }
 
-    XCTAssertNil(biMap.updateValue("World", forKey: 3))
-    XCTAssertEqual(biMap["World"], 3)
-    XCTAssertEqual(biMap[3], "World")
-    XCTAssertNil(biMap.updateValue("Hello", forKey: 4))
-    XCTAssertEqual(biMap["Hello"], 4)
-    XCTAssertEqual(biMap[4], "Hello")
+
   }
 }
