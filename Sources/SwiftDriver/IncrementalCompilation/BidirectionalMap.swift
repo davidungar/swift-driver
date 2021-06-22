@@ -25,19 +25,10 @@ public struct BidirectionalMap<T1: Hashable, T2: Hashable>: Equatable, Sequence 
   /// map; otherwise, `nil`.
   public subscript(_ key: T1) -> T2? {
     get {
-      return self.map1[key]
+      Self.lookup(key, map1, map2)
     }
     set {
-      // First, strike any existing mappings.
-      if let oldTarget = self.map1.removeValue(forKey: key) {
-        self.map2.removeValue(forKey: oldTarget)
-      }
-      // Then construct the forward mapping (or removal).
-      self.map1[key] = newValue
-      if let newValue = newValue {
-        // And finally, the backwards mapping (or removal).
-        self.map2[newValue] = key
-      }
+      Self.updateOrRemoveValue(newValue, forKey: key, &map1, &map2)
     }
   }
 
@@ -48,19 +39,10 @@ public struct BidirectionalMap<T1: Hashable, T2: Hashable>: Equatable, Sequence 
   /// map; otherwise, `nil`.
   public subscript(_ key: T2) -> T1? {
     get {
-      return self.map2[key]
+      Self.lookup(key, map2, map1)
     }
     set {
-      // First, strike any existing mappings.
-      if let oldSource = self.map2.removeValue(forKey: key) {
-        self.map1.removeValue(forKey: oldSource)
-      }
-      // Then construct the reverse mapping (or removal).
-      self.map2[key] = newValue
-      if let newValue = newValue {
-        // And finally the forwards mapping (or removal).
-        self.map1[newValue] = key
-      }
+      Self.updateOrRemoveValue(newValue, forKey: key, &map2, &map1)
     }
   }
 
@@ -72,31 +54,63 @@ public struct BidirectionalMap<T1: Hashable, T2: Hashable>: Equatable, Sequence 
   }
 
   public mutating func updateValue(_ newValue: T2, forKey key: T1) -> T2? {
-    let oldValue = map1.updateValue(newValue, forKey: key)
-    _ = oldValue.map {map2.removeValue(forKey: $0)}
-    map2[newValue] = key
-    return oldValue
+    Self.updateValue(newValue, forKey: key, &map1, &map2)
   }
   public mutating func updateValue(_ newValue: T1, forKey key: T2) -> T1? {
-    let oldValue = map2.updateValue(newValue, forKey: key)
-   _ = oldValue.map {map1.removeValue(forKey: $0)}
-    map1[newValue] = key
-    return oldValue
+    Self.updateValue(newValue, forKey: key, &map2, &map1)
   }
 
-  public mutating func removeValue(forKey t1: T1) {
-    if let t2 = map1[t1] {
-      map2.removeValue(forKey: t2)
-    }
-    map1.removeValue(forKey: t1)
+  public mutating func removeValue(forKey key: T1) {
+    Self.removeValue(forKey: key, &map1, &map2)
   }
-  public mutating func removeValue(forKey t2: T2) {
-    if let t1 = map2[t2] {
-      map1.removeValue(forKey: t1)
-    }
-    map2.removeValue(forKey: t2)
+  public mutating func removeValue(forKey key: T2) {
+    Self.removeValue(forKey: key, &map2, &map1)
   }
   public func makeIterator() -> Dictionary<T1, T2>.Iterator {
     map1.makeIterator()
+  }
+}
+
+// MARK: - factoring bidirectionality
+extension BidirectionalMap {
+  static fileprivate func lookup<K: Hashable, V: Hashable>(
+    _ key: K, _ forwardMap: [K: V], _ reverseMap: [V: K]) -> V? {
+    guard let v = forwardMap[key] else {
+      return nil
+    }
+    assert(reverseMap[v] == key)
+    return v
+  }
+
+  @discardableResult
+  static fileprivate func updateOrRemoveValue<K: Hashable, V: Hashable>(
+    _ newValue: V?, forKey key: K, _ forwardMap: inout [K: V], _ reverseMap: inout [V: K]
+  ) -> V? {
+    if let newValue = newValue {
+      return updateValue(newValue, forKey: key, &forwardMap, &reverseMap)
+    }
+    removeValue(forKey: key, &forwardMap, &reverseMap)
+    return nil
+  }
+
+  @discardableResult
+  static fileprivate func updateValue<K: Hashable, V: Hashable>(
+    _ newValue: V, forKey key: K, _ forwardMap: inout [K: V], _ reverseMap: inout [V: K]
+    ) -> V? {
+    let oldValue = forwardMap.updateValue(newValue, forKey: key)
+    _ = oldValue.map {reverseMap.removeValue(forKey: $0)}
+    reverseMap[newValue] = key
+    return oldValue
+  }
+
+  @discardableResult
+  static fileprivate func removeValue<K: Hashable, V: Hashable>(
+    forKey key: K, _ forwardMap: inout [K: V], _ reverseMap: inout [V: K]
+  ) -> V? {
+    let oldValue = forwardMap.removeValue(forKey: key)
+    if let oldValue = oldValue {
+      reverseMap.removeValue(forKey: oldValue)
+    }
+    return oldValue
   }
 }
