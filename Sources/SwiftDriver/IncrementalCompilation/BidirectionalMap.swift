@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-/// Like a two-way dictionary
+/// Like a two-way dictionary, but with only the functionality needed for the driver
 ///
 public struct BidirectionalMap<T1: Hashable, T2: Hashable>: Equatable, Sequence {
   private var map1: [T1: T2] = [:]
@@ -27,9 +27,6 @@ public struct BidirectionalMap<T1: Hashable, T2: Hashable>: Equatable, Sequence 
     get {
       Self.lookup(key, map1, map2)
     }
-    set {
-      Self.updateOrRemoveValue(newValue, forKey: key, &map1, &map2)
-    }
   }
 
   /// Accesses the value associated with the given key for reading and writing.
@@ -40,9 +37,6 @@ public struct BidirectionalMap<T1: Hashable, T2: Hashable>: Equatable, Sequence 
   public subscript(_ key: T2) -> T1? {
     get {
       Self.lookup(key, map2, map1)
-    }
-    set {
-      Self.updateOrRemoveValue(newValue, forKey: key, &map2, &map1)
     }
   }
 
@@ -60,12 +54,6 @@ public struct BidirectionalMap<T1: Hashable, T2: Hashable>: Equatable, Sequence 
     Self.updateValue(newValue, forKey: key, &map2, &map1)
   }
 
-  public mutating func removeValue(forKey key: T1) {
-    Self.removeValue(forKey: key, &map1, &map2)
-  }
-  public mutating func removeValue(forKey key: T2) {
-    Self.removeValue(forKey: key, &map2, &map1)
-  }
   public func makeIterator() -> Dictionary<T1, T2>.Iterator {
     map1.makeIterator()
   }
@@ -83,34 +71,12 @@ extension BidirectionalMap {
   }
 
   @discardableResult
-  static fileprivate func updateOrRemoveValue<K: Hashable, V: Hashable>(
-    _ newValue: V?, forKey key: K, _ forwardMap: inout [K: V], _ reverseMap: inout [V: K]
-  ) -> V? {
-    if let newValue = newValue {
-      return updateValue(newValue, forKey: key, &forwardMap, &reverseMap)
-    }
-    removeValue(forKey: key, &forwardMap, &reverseMap)
-    return nil
-  }
-
-  @discardableResult
   static fileprivate func updateValue<K: Hashable, V: Hashable>(
     _ newValue: V, forKey key: K, _ forwardMap: inout [K: V], _ reverseMap: inout [V: K]
     ) -> V? {
     let oldValue = forwardMap.updateValue(newValue, forKey: key)
     _ = oldValue.map {reverseMap.removeValue(forKey: $0)}
     reverseMap[newValue] = key
-    return oldValue
-  }
-
-  @discardableResult
-  static fileprivate func removeValue<K: Hashable, V: Hashable>(
-    forKey key: K, _ forwardMap: inout [K: V], _ reverseMap: inout [V: K]
-  ) -> V? {
-    let oldValue = forwardMap.removeValue(forKey: key)
-    if let oldValue = oldValue {
-      reverseMap.removeValue(forKey: oldValue)
-    }
     return oldValue
   }
 }

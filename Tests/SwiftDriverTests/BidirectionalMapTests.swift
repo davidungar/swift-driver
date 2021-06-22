@@ -32,37 +32,26 @@ class BidirectionalMapTests: XCTestCase {
     }
     
     var biMap = BidirectionalMap<Int, String>()
-    var testContents = (0..<3).map {($0, String($0))}
+    let testContents = (0..<3).map {($0, String($0))}
     for (i, s) in testContents {
-      biMap[i] = s
+      XCTAssertNil(biMap.updateValue(s, forKey: i))
     }
     test(biMap)
-    biMap.removeValue(forKey: testContents.count)
-    test(biMap)
-    biMap.removeValue(forKey: "gazorp")
-    test(biMap)
-
-    let removed = testContents.removeFirst()
-    var biMap2 = biMap
-    biMap.removeValue(forKey: removed.0)
-    biMap2.removeValue(forKey: removed.1)
-    test(biMap)
-    test(biMap2)
   }
 
   func testDirectionality() {
     var biMap = BidirectionalMap<Int, String>()
-    biMap[1] = "Hello"
+    XCTAssertNil(biMap.updateValue("Hello", forKey: 1))
     XCTAssertEqual(biMap["Hello"], 1)
     XCTAssertEqual(biMap[1], "Hello")
-    biMap[2] = "World"
+    XCTAssertNil(biMap.updateValue("World", forKey: 2))
     XCTAssertEqual(biMap["World"], 2)
     XCTAssertEqual(biMap[2], "World")
 
-    biMap["World"] = 3
+    XCTAssertNil(biMap.updateValue("World", forKey: 3))
     XCTAssertEqual(biMap["World"], 3)
     XCTAssertEqual(biMap[3], "World")
-    biMap["Hello"] = 4
+    XCTAssertNil(biMap.updateValue("Hello", forKey: 4))
     XCTAssertEqual(biMap["Hello"], 4)
     XCTAssertEqual(biMap[4], "Hello")
   }
