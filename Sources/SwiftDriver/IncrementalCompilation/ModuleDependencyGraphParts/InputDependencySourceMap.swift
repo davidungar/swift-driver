@@ -19,7 +19,7 @@ import TSCBasic
   // optimizes the reverse lookup, and includes path interning via `DependencySource`.
   // Once created, it does not change.
   
-  public typealias BiMap = BidirectionalMap<TypedVirtualPath, DependencySource>
+  public typealias BiMap = BidirectionalMap<TypedVirtualPath, VirtualPath.Handle>
   @_spi(Testing) public let biMap: BiMap
 
   /// Based on entries in the `OutputFileMap`, create the bidirectional map to map each source file
@@ -44,7 +44,7 @@ import TSCBasic
          // Don't stop at the first problem.
          return
        }
-       if let sameSourceForInput = biMap.updateValue(dependencySource, forKey: input) {
+      if let sameSourceForInput = biMap.updateValue(dependencySource.fileHandle, forKey: input) {
          diagnosticEngine.emit(
            .remarkDisabled(
              "\(dependencySource) and \(sameSourceForInput) have the same input file in the output file map: \(input)")
@@ -60,19 +60,20 @@ import TSCBasic
 
 // MARK: - Accessing
 extension InputDependencySourceMap {
-  @_spi(Testing) public func sourceIfKnown(for input: TypedVirtualPath) -> DependencySource? {
-    biMap[input]
+  @_spi(Testing) public func sourceIfKnown(for input: TypedVirtualPath) -> SwiftDepsDependencySource? {
+    guard let fileHandle = biMap[input] else {return nil}
+    return biMap[input].map(SwiftDepsDependencySource.init(fileHandle:))
   }
 
-  @_spi(Testing) public func inputIfKnown(for source: DependencySource) -> TypedVirtualPath? {
-    biMap[source]
+  @_spi(Testing) public func inputIfKnown(for source: DependencySourceX) -> TypedVirtualPath? {
+    biMap[source.typedFile.fileHandle]
   }
 }
 
 extension OutputFileMap {
   @_spi(Testing) public func getDependencySource(
     for sourceFile: TypedVirtualPath
-  ) -> DependencySource? {
+  ) -> SwiftDepsDependencySource? {
     assert(sourceFile.type == FileType.swift)
     guard let swiftDepsPath = existingOutput(inputFile: sourceFile.fileHandle,
                                              outputType: .swiftDeps)
@@ -80,7 +81,6 @@ extension OutputFileMap {
       return nil
    }
     assert(VirtualPath.lookup(swiftDepsPath).extension == FileType.swiftDeps.rawValue)
-    let typedSwiftDepsFile = TypedVirtualPath(file: swiftDepsPath, type: .swiftDeps)
-    return DependencySource(typedSwiftDepsFile)
+    return SwiftDepsDependencySource(fileHandle: swiftDepsPath)
   }
 }

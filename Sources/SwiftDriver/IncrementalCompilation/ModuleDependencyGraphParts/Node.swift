@@ -45,7 +45,7 @@ extension ModuleDependencyGraph {
     /// Nodes can move from file to file when the driver reads the result of a
     /// compilation.
     /// Nil represents a node with no known residance
-    @_spi(Testing) public let dependencySource: DependencySource?
+    @_spi(Testing) public let dependencySource: DependencySourceX?
     var isExpat: Bool { dependencySource == nil }
 
     /// When integrating a change, the driver finds untraced nodes so it can kick off jobs that have not been
@@ -59,7 +59,7 @@ extension ModuleDependencyGraph {
     /// This dependencySource is the file where the swiftDeps, etc. was read, not necessarily anything in the
     /// SourceFileDependencyGraph or the DependencyKeys
     init(key: DependencyKey, fingerprint: String?,
-         dependencySource: DependencySource?) {
+         dependencySource: DependencySourceX?) {
       self.keyAndFingerprint = try! KeyAndFingerprintHolder(key, fingerprint)
       self.dependencySource = dependencySource
       self.cachedHash = Self.computeHash(key, dependencySource)
@@ -85,12 +85,12 @@ extension ModuleDependencyGraph.Node {
 extension ModuleDependencyGraph.Node: Equatable, Hashable {
   public static func ==(lhs: ModuleDependencyGraph.Node, rhs: ModuleDependencyGraph.Node) -> Bool {
     lhs.keyAndFingerprint.key == rhs.keyAndFingerprint.key &&
-    lhs.dependencySource == rhs.dependencySource
+    lhs.dependencySource?.fileHandle == rhs.dependencySource?.fileHandle
   }
-  static private func computeHash(_ key: DependencyKey, _ source: DependencySource?) -> Int {
+  static private func computeHash(_ key: DependencyKey, _ source: DependencySourceX?) -> Int {
     var h = Hasher()
     h.combine(key)
-    h.combine(source)
+    h.combine(source?.fileHandle)
     return h.finalize()
   }
 
@@ -110,8 +110,8 @@ extension ModuleDependencyGraph.Node: Comparable {
       }
     }
     return lhs.key != rhs.key ? lhs.key < rhs.key :
-      lhs.dependencySource != rhs.dependencySource
-        ? lt(lhs.dependencySource, rhs.dependencySource)
+      lhs.dependencySource?.fileHandle != rhs.dependencySource?.fileHandle
+    ? lt(lhs.dependencySource?.file.name, rhs.dependencySource?.file.name)
         : lt(lhs.fingerprint, rhs.fingerprint)
   }
 }

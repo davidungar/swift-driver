@@ -120,12 +120,12 @@ extension ModuleDependencyGraph.Integrator {
   /// and return the merged node. Remember that the merged node has changed if it has.
   private mutating func integrateWithNodeHere(
     _ integrand: SourceFileDependencyGraph.Node,
-    _ nodesMatchingKey: [DependencySource?: Graph.Node]
+    _ nodesMatchingKey: [VirtualPath.Handle?: Graph.Node]
   ) -> Graph.Node? {
-    guard let matchHere = nodesMatchingKey[sourceGraph.dependencySource] else {
+    guard let matchHere = nodesMatchingKey[sourceGraph.dependencySource.fileHandle] else {
       return nil
     }
-    assert(matchHere.dependencySource == sourceGraph.dependencySource)
+    assert(matchHere.dependencySource?.fileHandle == sourceGraph.dependencySource.fileHandle)
     // Node was and still is. Do not remove it.
     disappearedNodes.removeValue(forKey: matchHere.key)
     if matchHere.fingerprint != integrand.fingerprint {
@@ -140,7 +140,7 @@ extension ModuleDependencyGraph.Integrator {
   /// and return the replacement. Remember that the replace has changed.
   private mutating func integrateWithExpat(
     _ integrand: SourceFileDependencyGraph.Node,
-    _ nodesMatchingKey: [DependencySource?: Graph.Node]
+    _ nodesMatchingKey: [VirtualPath.Handle?: Graph.Node]
   ) -> Graph.Node? {
     guard let expat = nodesMatchingKey[nil] else {
       return nil

@@ -23,7 +23,7 @@ import TSCUtility
   private var allNodes: [Node]
 
   /// Holds the filename fromwhich the graph was read.
-  public let dependencySource: DependencySource
+  public let dependencySource: DependencySourceX
   
   public var sourceFileNodePair: (interface: Node, implementation: Node) {
     (interface: allNodes[SourceFileDependencyGraph.sourceFileProvidesInterfaceSequenceNumber],
@@ -137,13 +137,13 @@ extension SourceFileDependencyGraph {
 
   /// Returns nil if there was no dependency info
   static func read(
-    from dependencySource: DependencySource,
+    from dependencySource: DependencySourceX,
     on fileSystem: FileSystem
   ) throws -> Self? {
     try self.init(contentsOf: dependencySource, on: fileSystem)
   }
   
-  /*@_spi(Testing)*/ public init(from dependencySource: DependencySource,
+  /*@_spi(Testing)*/ public init(from dependencySource: DependencySourceX,
                                  nodesForTesting: [Node]) {
     majorVersion = 0
     minorVersion = 0
@@ -153,7 +153,7 @@ extension SourceFileDependencyGraph {
   }
 
   /*@_spi(Testing)*/ public init?(
-    contentsOf dependencySource: DependencySource,
+    contentsOf dependencySource: DependencySourceX,
     on fileSystem: FileSystem
   ) throws {
     let data = try fileSystem.readFileContents(dependencySource.file)
@@ -164,7 +164,7 @@ extension SourceFileDependencyGraph {
   /// Returns nil for a swiftmodule with no depenencies
   /*@_spi(Testing)*/ public init?(
     data: ByteString,
-    from dependencySource: DependencySource,
+    from dependencySource: DependencySourceX,
     fromSwiftModule extractFromSwiftModule: Bool = false
   ) throws {
     struct Visitor: BitstreamVisitor {

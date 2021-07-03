@@ -62,7 +62,7 @@ import SwiftOptions
   @_spi(Testing) public func sourceRequired(for input: TypedVirtualPath,
                                             function: String = #function,
                                             file: String = #file,
-                                            line: Int = #line) -> DependencySource {
+                                            line: Int = #line) -> SwiftDepsDependencySource {
     guard let source = inputDependencySourceMap.sourceIfKnown(for: input)
     else {
       fatalError("\(input.file.basename) not found in inputDependencySourceMap, \(file):\(line) in \(function)")
@@ -173,8 +173,8 @@ extension ModuleDependencyGraph {
   /// Find all the swiftDeps files that depend on `dependencySource`.
   /// Really private, except for testing.
   /*@_spi(Testing)*/ public func collectSwiftDepsUsing(
-    dependencySource: DependencySource
-  ) -> TransitivelyInvalidatedSourceSet {
+    dependencySource: DependencySourceX
+  ) -> TransitivelyInvalidatedSwiftDepsSourceSet {
     let nodes = nodeFinder.findNodes(for: dependencySource) ?? [:]
     /// Tests expect this to be reflexive
     return collectSwiftDepsUsingInvalidated(nodes: DirectlyInvalidatedNodeSet(nodes.values))
@@ -189,7 +189,7 @@ extension ModuleDependencyGraph {
     return containsNodes(forDependencySource: source)
   }
 
-  func containsNodes(forDependencySource source: DependencySource) -> Bool {
+  func containsNodes(forDependencySource source: DependencySourceX) -> Bool {
     return nodeFinder.findNodes(for: source).map {!$0.isEmpty}
       ?? false
   }
@@ -219,7 +219,7 @@ extension ModuleDependencyGraph {
   /*@_spi(Testing)*/
   public func collectSwiftDepsUsingInvalidated(
     nodes: DirectlyInvalidatedNodeSet
-  ) -> TransitivelyInvalidatedSourceSet
+  ) -> TransitivelyInvalidatedSwiftDepsSourceSet
   {
     // Is this correct for the 1st wave after having read a prior?
     // Yes, because
@@ -230,10 +230,9 @@ extension ModuleDependencyGraph {
       in: self,
       diagnosticEngine: info.diagnosticEngine)
       .tracedUses
-    return affectedNodes.reduce(into: TransitivelyInvalidatedSourceSet()) {
+    return affectedNodes.reduce(into: TransitivelyInvalidatedSwiftDepsSourceSet()) {
       invalidatedSources, affectedNode in
-      if let source = affectedNode.dependencySource,
-          source.typedFile.type == .swiftDeps {
+      if let source = affectedNode.dependencySource as? SwiftDepsDependencySource {
         invalidatedSources.insert(source)
       }
     }
@@ -268,7 +267,7 @@ extension ModuleDependencyGraph {
   /// `dependencySource` - The file to read containing dependency information
   /// Returns `nil` on error
   private func collectInputsRequiringCompilationAfterProcessing(
-    dependencySource: DependencySource
+    dependencySource: DependencySourceX
   ) -> TransitivelyInvalidatedInputSet? {
     assert(dependencySource.typedFile.type == .swiftDeps)
     guard let sourceGraph = dependencySource.read(in: info.fileSystem,
@@ -608,7 +607,7 @@ extension ModuleDependencyGraph {
           let fingerprint = hasFingerprint ? fingerprintStr : nil
           guard let dependencySource = try swiftDepsStr
                   .map({ try VirtualPath.intern(path: $0) })
-                  .map(DependencySource.init)
+                  .map({SwiftDepsDependencySource(fileHandle: $0)})
           else {
             throw ReadError.unknownDependencySourceExtension
           }

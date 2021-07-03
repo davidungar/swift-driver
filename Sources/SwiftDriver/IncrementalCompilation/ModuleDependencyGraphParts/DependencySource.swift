@@ -14,40 +14,82 @@ import TSCBasic
 
 // MARK: - DependencySource
 /// Points to the source of dependencies, i.e. the file read to obtain the information.
-/*@_spi(Testing)*/
-public struct DependencySource: Hashable, CustomStringConvertible {
+public protocol DependencySourceX: CustomStringConvertible {
 
-  public let typedFile: TypedVirtualPath
+  var typedFile: TypedVirtualPath {get}
+  var file: VirtualPath {get}
+  var shortDescription: String {get}
+  var fileHandle: VirtualPath.Handle {get}
+  static var fileType: FileType {get}
+}
 
-  init(_ typedFile: TypedVirtualPath) {
-    assert( typedFile.type == .swiftDeps ||
-            typedFile.type == .swiftModule)
-      self.typedFile = typedFile
-  }
-
-  /*@_spi(Testing)*/
-  /// Returns nil if cannot be a source
-  public init?(_ file: VirtualPath.Handle) {
-    let ext = VirtualPath.lookup(file).extension
-    guard let type =
-      ext == FileType.swiftDeps  .rawValue ? FileType.swiftDeps :
-      ext == FileType.swiftModule.rawValue ? FileType.swiftModule
-      : nil
-    else {
-      return nil
-    }
-    self.init(TypedVirtualPath(file: file, type: type))
-  }
-
-  public var file: VirtualPath { typedFile.file }
-
+extension DependencySourceX {
   public var description: String {
-    ExternalDependency(fileName: self.file.name).description
+    ExternalDependency(fileName: file.name).description // DMU
+  }
+
+  public var file: VirtualPath {
+    VirtualPath.lookup(fileHandle)
+  }
+  public var typedFile: TypedVirtualPath {
+    TypedVirtualPath(file: fileHandle, type: Self.fileType)
   }
 }
 
+public func createDependencySource(_ typedFile: TypedVirtualPath) -> DependencySourceX? {
+  switch typedFile.type {
+  case .swiftDeps:   return SwiftDepsDependencySource(  fileHandle: typedFile.fileHandle)
+  case .swiftModule: return SwiftModuleDependencySource(fileHandle: typedFile.fileHandle)
+  default: return nil
+  }
+}
+
+public func createDependencySource(_  fileHandle: VirtualPath.Handle) -> DependencySourceX {
+  let path = VirtualPath.lookup(fileHandle)
+  let ext = path.extension
+  switch ext {
+  case FileType.swiftDeps.rawValue:
+    return SwiftDepsDependencySource(fileHandle: fileHandle)
+  case FileType.swiftModule.rawValue:
+    return SwiftModuleDependencySource(fileHandle: fileHandle)
+  default:
+    fatalError("bad extension \(String(describing: ext))")
+  }
+}
+
+public struct SwiftDepsDependencySource: DependencySourceX, Hashable {
+  public let fileHandle: VirtualPath.Handle
+  public var shortDescription: String { file.basename }
+  public static var fileType = FileType.swiftDeps
+  public init(checking typedFile: TypedVirtualPath) {
+    assert(typedFile.type == Self.fileType)
+    self.fileHandle = typedFile.fileHandle
+  }
+  public init(fileHandle: VirtualPath.Handle) {
+    assert( VirtualPath.lookup(fileHandle).extension == Self.fileType.rawValue)
+    self.fileHandle = fileHandle
+  }
+}
+
+public struct SwiftModuleDependencySource: DependencySourceX, Hashable {
+  public let fileHandle: VirtualPath.Handle
+  public var shortDescription: String { file.parentDirectory.basename }
+  public static var fileType = FileType.swiftModule
+  public init(checking typedFile: TypedVirtualPath) {
+    assert(typedFile.type == Self.fileType)
+    self.fileHandle = typedFile.fileHandle
+  }
+  public init(fileHandle: VirtualPath.Handle) {
+    assert( VirtualPath.lookup(fileHandle).extension == Self.fileType.rawValue)
+    self.fileHandle = fileHandle
+  }
+
+}
+
+
+
 // MARK: - reading
-extension DependencySource {
+extension DependencySourceX {
   /// Throws if a read error
   /// Returns nil if no dependency info there.
   public func read(
@@ -66,28 +108,6 @@ extension DependencySource {
       return nil
     }
     return graphIfPresent
-  }
-}
-
-// MARK: - comparing
-extension DependencySource: Comparable {
-  public static func < (lhs: Self, rhs: Self) -> Bool {
-    lhs.file.name < rhs.file.name
-  }
-}
-
-// MARK: - describing
-extension DependencySource {
-  /// Answer a single name; for swift modules, the right thing is one level up
-  public var shortDescription: String {
-    switch typedFile.type {
-    case .swiftDeps:
-      return file.basename
-    case .swiftModule:
-      return file.parentDirectory.basename
-    default:
-      return file.name
-    }
   }
 }
 

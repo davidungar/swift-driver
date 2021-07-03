@@ -61,8 +61,9 @@ import TSCBasic
 
   public var shortDescription: String {
     pathHandle.map { pathHandle in
-      DependencySource(pathHandle).map { $0.shortDescription }
-        ?? VirtualPath.lookup(pathHandle).basename
+      isSwiftModule
+      ? SwiftModuleDependencySource(fileHandle: pathHandle).shortDescription
+      : VirtualPath.lookup(pathHandle).basename
     }
     ?? description
   }
@@ -94,13 +95,13 @@ public struct FingerprintedExternalDependency: Hashable, Equatable, ExternalDepe
   }
   var externalDependencyToCheck: ExternalDependency? { externalDependency }
 
-  var incrementalDependencySource: DependencySource? {
+  var incrementalDependencySource: SwiftModuleDependencySource? {
     guard let _ = fingerprint,
           let swiftModuleFile = externalDependency.swiftModuleFile
     else {
       return nil
     }
-    return DependencySource(swiftModuleFile)
+    return SwiftModuleDependencySource(checking: swiftModuleFile)
   }
 }
 

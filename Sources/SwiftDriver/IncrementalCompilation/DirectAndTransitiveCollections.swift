@@ -79,7 +79,7 @@ public struct InvalidatedArray<ClosureLevel, Element>: Sequence {
 }
 
 public typealias TransitivelyInvalidatedNodeArray = InvalidatedArray<Transitively, ModuleDependencyGraph.Node>
-public typealias TransitivelyInvalidatedSourceSet = InvalidatedSet<Transitively, DependencySource>
+public typealias TransitivelyInvalidatedSwiftDepsSourceSet = InvalidatedSet<Transitively, SwiftDepsDependencySource>
 public typealias TransitivelyInvalidatedInputArray = InvalidatedArray<Transitively, TypedVirtualPath>
 public typealias TransitivelyInvalidatedInputSet = InvalidatedSet<Transitively, TypedVirtualPath>
 public typealias DirectlyInvalidatedNodeArray = InvalidatedArray<Directly, ModuleDependencyGraph.Node>

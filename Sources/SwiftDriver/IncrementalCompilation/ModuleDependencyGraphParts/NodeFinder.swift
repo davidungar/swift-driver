@@ -20,7 +20,7 @@ extension ModuleDependencyGraph {
     @_spi(Testing) public typealias Graph = ModuleDependencyGraph
     
     /// Maps dependencySource files and DependencyKeys to Nodes
-    fileprivate typealias NodeMap = TwoDMap<DependencySource?, DependencyKey, Node>
+    fileprivate typealias NodeMap = TwoDMap<VirtualPath.Handle?, DependencyKey, Node>
     fileprivate var nodeMap = NodeMap()
     
     /// Since dependency keys use baseNames, they are coarser than individual
@@ -40,7 +40,10 @@ extension ModuleDependencyGraph {
 // MARK: - finding
 
 extension ModuleDependencyGraph.NodeFinder {
-  @_spi(Testing) public func findNode(_ mapKey: (DependencySource?, DependencyKey)) -> Graph.Node? {
+  @_spi(Testing) public func findNode(_ mapKey: (DependencySourceX?, DependencyKey)) -> Graph.Node? {
+    findNode((mapKey.0.map {$0.fileHandle}, mapKey.1))
+  }
+  @_spi(Testing) public func findNode(_ mapKey: (VirtualPath.Handle?, DependencyKey)) -> Graph.Node? {
     nodeMap[mapKey]
   }
   func findCorrespondingImplementation(of n: Graph.Node) -> Graph.Node? {
@@ -48,11 +51,11 @@ extension ModuleDependencyGraph.NodeFinder {
       .flatMap {findNode((n.dependencySource, $0))}
   }
   
-  @_spi(Testing) public func findNodes(for dependencySource: DependencySource?)
+  @_spi(Testing) public func findNodes(for dependencySource: DependencySourceX?)
   -> [DependencyKey: Graph.Node]? {
-    nodeMap[dependencySource]
+    nodeMap[dependencySource?.typedFile.fileHandle]
   }
-  @_spi(Testing) public func findNodes(for key: DependencyKey) -> [DependencySource?: Graph.Node]? {
+  @_spi(Testing) public func findNodes(for key: DependencyKey) -> [VirtualPath.Handle?: Graph.Node]? {
     nodeMap[key]
   }
 
@@ -99,9 +102,10 @@ extension ModuleDependencyGraph.NodeFinder {
     return self.uses(of: def).sorted()
   }
 
-  func mappings(of n: Graph.Node) -> [(DependencySource?, DependencyKey)] {
+  func mappings(of n: Graph.Node) -> [(VirtualPath.Handle?, DependencyKey)] {
     nodeMap.compactMap { k, _ in
-      guard k.0 == n.dependencySource && k.1 == n.key else {
+      guard k.0 == n.dependencySource?.fileHandle && k.1 == n.key
+      else {
         return nil
       }
       return k
@@ -114,8 +118,8 @@ extension ModuleDependencyGraph.NodeFinder {
 }
 
 fileprivate extension ModuleDependencyGraph.Node {
-  var mapKey: (DependencySource?, DependencyKey) {
-    return (dependencySource, key)
+  var mapKey: (VirtualPath.Handle?, DependencyKey) {
+    return (dependencySource?.fileHandle, key)
   }
 }
 
@@ -167,7 +171,7 @@ extension ModuleDependencyGraph.NodeFinder {
   ///
   /// Now that nodes are immutable, this function needs to replace the node
   mutating func replace(_ original: Graph.Node,
-                        newDependencySource: DependencySource,
+                        newDependencySource: DependencySourceX,
                         newFingerprint: String?
   ) -> Graph.Node {
     let replacement = Graph.Node(key: original.key,
