@@ -946,7 +946,7 @@ extension Driver {
     switch driverName {
     case "swift":
       return .interactive
-    case "swiftc":
+    case "swiftc", "swift-driver":
       return .batch
     default:
       throw Error.invalidDriverName(driverName)

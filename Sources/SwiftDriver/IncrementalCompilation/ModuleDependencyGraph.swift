@@ -72,7 +72,7 @@ extension ModuleDependencyGraph {
     var shouldNewExternalDependenciesTriggerInvalidation: Bool {
       switch self {
       case .buildingWithoutAPrior:
-       // Reading graph from a swiftdeps file,
+        // Reading graph from a swiftdeps file,
         // so every incremental external dependency found will be new to the
         // graph. Don't invalidate just 'cause it's new.
         return false
@@ -126,7 +126,7 @@ extension ModuleDependencyGraph {
   func collectNodesInvalidatedByChangedOrAddedExternals() -> DirectlyInvalidatedNodeSet {
     fingerprintedExternalDependencies.reduce(into: DirectlyInvalidatedNodeSet()) {
       invalidatedNodes, fed in
-      invalidatedNodes.formUnion(self.integrateExternal(.known(fed)))
+      invalidatedNodes.formUnion(self.integrateExternal(.known(fed))) //dmu
     }
   }
 }
@@ -317,22 +317,15 @@ extension ModuleDependencyGraph {
     /// A `known` integrand is known to be present in the graph and requires
     /// only a mod-time check to determine if it is up to date.
     case known(FingerprintedExternalDependency)
-    /// An `unknown` integrand is not, up to this point, known to the dependency
+    /// An `mayBeUnknown` integrand may not not be, up to this point, known to the dependency
     /// graph. This models the addition of an import that is discovered during
-    /// the incremental build.
-    case unknown(FingerprintedExternalDependency)
+    /// the incremental build, or during reading a swiftdeps file.
+    case mayBeUnknown(FingerprintedExternalDependency)
 
     var externalDependency: FingerprintedExternalDependency {
       switch self {
       case .known(let fed): return fed
-      case .unknown(let fed): return fed
-      }
-    }
-
-    var isKnown: Bool {
-      switch self {
-      case .known(_): return true
-      case .unknown(_): return false
+      case .mayBeUnknown(let fed): return fed
       }
     }
   }
@@ -376,15 +369,58 @@ extension ModuleDependencyGraph {
   private func invalidationReason(
     for fed: ExternalIntegrand
   ) -> ExternalDependency.InvalidationReason? {
-    let isNewToTheGraph = !fed.isKnown && fingerprintedExternalDependencies.insert(fed.externalDependency).inserted
-    if self.phase.shouldNewExternalDependenciesTriggerInvalidation && isNewToTheGraph {
-      return .added
+    let colton = true
+
+    if case .mayBeUnknown = fed {
+      let wasInserted = fingerprintedExternalDependencies.insert(fed.externalDependency).inserted
+      enum who {case david, colton, new}
+      switch (who, wasInserted, phase.shouldNewExternalDependenciesTriggerInvalidation) {
+      case (.david, true, false): break
+      case (.new,   true, _):
+        recordFileIsUpToDate(fed.externalDependency)
+        return .added
+      case (_, true, _): return .added
+
+
+      case (.colton, false, _): return nil // was already there, already read
+      case (.david, false, _): break // was already there, didn't change because was just inserted
+      case (.new, false, _): break // was already there, didn't change because was just inserted
+      }
     }
 
     if self.hasFileChanged(fed.externalDependency.externalDependency) {
       return .changed
     }
     return nil
+  }
+
+  private func invalidationReasonxxx(
+    for fed: ExternalIntegrand
+  ) -> ExternalDependency.InvalidationReason? {
+    switch beKnown(fed) {
+    case .wasUnknown:
+      recordFileIsUpToDate(fed.externalDependency)
+      return .added
+    case .wasKnown:
+      return hasFileChanged(fed.externalDependency.externalDependency) ? .changed : nil
+    }
+  }
+
+  enum PriorStatus {
+    case wasUnknown, wasKnown
+  }
+
+
+  /// Return true if was not known
+  private func beKnown(_ fed: FingerprintedExternalDependency) -> PriorStatus {
+    switch fed {
+    case .known:
+      assert(fingerprintedExternalDependencies.contains(fed.externalDependency))
+      return .wasKnown
+    case .mayBeUnknown:
+      let wasInserted = fingerprintedExternalDependencies.insert(fed.externalDependency).inserted
+      return wasInserted ? .wasUnknown : .wasKnown
+    }
   }
 
   private func hasFileChanged(_ externalDependency: ExternalDependency) -> Bool {
@@ -398,6 +434,10 @@ extension ModuleDependencyGraph {
     let hasChanged = fileModTime >= info.buildStartTime
     externalDependencyModTimeCache[externalDependency] = hasChanged
     return hasChanged
+  }
+
+  private func recordFileIsUpToDate(_ externalDependency: ExternalDependency) {
+    externalDependencyModTimeCache[externalDependency] = false
   }
 
   /// Try to read and integrate an external dependency.

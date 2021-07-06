@@ -233,7 +233,7 @@ extension ModuleDependencyGraph.Integrator {
   private mutating func recordInvalidations(
     from externalDependency: FingerprintedExternalDependency
   ) {
-    let invalidated = destination.integrateExternal(.unknown(externalDependency))
+    let invalidated = destination.integrateExternal(.mayBeUnknown(externalDependency)) //dmu
     recordUsesOfSomeExternal(invalidated)
   }
 }
