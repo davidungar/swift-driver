@@ -39,6 +39,8 @@ import SwiftOptions
 
   fileprivate var currencyCache: ExternalDependencyCurrencyCache
 
+  fileprivate var deferredIncrementalImports = Set<ExternalIntegrand>()
+
   public init?(_ info: IncrementalCompilationState.IncrementalDependencyAndInputSetup,
                _ phase: Phase
   ) {
@@ -334,15 +336,8 @@ extension ModuleDependencyGraph {
   func findNodesInvalidated(
     by integrand: ExternalIntegrand
   ) -> DirectlyInvalidatedNodeSet {
-    // If the whole graph isn't present yet, the driver must not integrate
-    // incrementally because it would have to integrate the same `swiftmodule`
-    // repeatedy for each new `swiftdeps` read so that external
-    // fingerprint changes would invalidate matching nodes in the
-    // yet-to-be-read swiftdeps.
-    //
     // If the integrand has no fingerprint, it's academic, cannot integrate it incrementally.
     self.info.isCrossModuleIncrementalBuildEnabled &&
-    self.phase.isWholeGraphPresent &&
     integrand.externalDependency.fingerprint != nil
     ?    incrementallyFindNodesInvalidated(by: integrand)
     : indiscriminatelyFindNodesInvalidated(by: integrand)
@@ -365,8 +360,24 @@ extension ModuleDependencyGraph {
     guard let whyIntegrate = whyIncrementallyFindNodesInvalidated(by: integrand) else {
       return DirectlyInvalidatedNodeSet()
     }
+    guard self.phase.isWholeGraphPresent else {
+      // If the whole graph isn't present yet, the driver must not integrate
+      // incrementally because it would have to integrate the same `swiftmodule`
+      // repeatedy for each new `swiftdeps` read so that external
+      // fingerprint changes would invalidate matching nodes in the
+      // yet-to-be-read swiftdeps.
+      deferredIncrementalImports.insert(integrand)
+    }
     return integrateIncrementalImport(of: integrand.externalDependency, whyIntegrate)
            ?? indiscriminatelyFindNodesInvalidated(by: integrand)
+  }
+
+  #error("must call") // if we don't build from swiftdeps, then we are compiling everything? just read once when encountered???
+  func integrateDeferredIncrementalImports() {
+    while !deferredIncrementalImports.isEmpty {
+      let integrand = deferredIncrementalImports.removeFirst()
+#error("then what?")
+    }
   }
 
   /// Collects the nodes invalidated by a change to the given external

@@ -233,7 +233,7 @@ extension IncrementalCompilationState.IncrementalDependencyAndInputSetup {
       return buildInitialGraphFromSwiftDepsAndCollectInputsInvalidatedByChangedExternals()
     }
     graph.dotFileWriter?.write(graph)
-
+    #error("reuse here")
     // Any externals not already in graph must be additions which should trigger
     // recompilation. Thus, `ChangedOrAdded`.
     let nodesDirectlyInvalidatedByExternals =
